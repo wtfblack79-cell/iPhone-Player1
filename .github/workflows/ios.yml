@@ -1,0 +1,33 @@
+name: Build iPhone Player
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: macos-latest
+
+    steps:
+      - name: Download repository
+        uses: actions/checkout@v4
+
+      - name: Install XcodeGen
+        run: brew install xcodegen
+
+      - name: Generate Xcode project
+        working-directory: ios-player
+        run: xcodegen generate
+
+      - name: Build iOS app
+        working-directory: ios-player
+        run: |
+          xcodebuild \
+            -project iPhonePlayer.xcodeproj \
+            -scheme iPhonePlayer \
+            -configuration Debug \
+            -destination 'generic/platform=iOS Simulator' \
+            CODE_SIGNING_ALLOWED=NO \
+            build
