@@ -15,6 +15,6 @@ targets:
     info:
       path: Info.plist
       properties:
-        CFBundleDisplayName: iPhone Player
+        CFBundleDisplayName: PlayBook
         UIBackgroundModes:
           - audio
