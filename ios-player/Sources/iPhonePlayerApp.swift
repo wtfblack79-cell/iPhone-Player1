@@ -151,18 +151,38 @@ struct ContentView: View {
             isPlaying = player.isPlaying
 
             if !player.isPlaying && player.currentTime >= player.duration {
-                isPlaying = false
+isPlaying = false
+}
+}
+.fileImporter(
+isPresented: $showingImporter,
+allowedContentTypes: [.audio, .mp3, .mpeg4Audio],
+allowsMultipleSelection: false
+) { result in
+loadAudio(result)
+}
+}
+    .overlay(alignment: .topTrailing) {
+        Menu {
+            Button {
+                showingImporter = true
+            } label: {
+                Label("Дропнуть аудио", systemImage: "folder")
             }
+        } label: {
+            Image(systemName: "ellipsis")
+                .font(.system(size: 24, weight: .bold))
+                .foregroundStyle(.white)
+                .frame(width: 44, height: 44)
+                .background(Color.white.opacity(0.12))
+                .clipShape(Circle())
         }
-        .fileImporter(
-            isPresented: $showingImporter,
-            allowedContentTypes: [.audio, .mp3, .mpeg4Audio],
-            allowsMultipleSelection: false
-        ) { result in
-            loadAudio(result)
-        }
+        .padding(.top, 12)
+        .padding(.trailing, 18)
     }
     }
+
+    
 
     private func loadAudio(_ result: Result<[URL], Error>) {
         do {
