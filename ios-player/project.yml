@@ -1,0 +1,22 @@
+name: iPhonePlayer
+
+options:
+deploymentTarget:
+iOS: “16.0”
+
+targets:
+iPhonePlayer:
+type: application
+platform: iOS
+sources:
+- path: Sources
+settings:
+base:
+PRODUCT_BUNDLE_IDENTIFIER: com.personal.iphoneplayer
+SWIFT_VERSION: “5.0”
+info:
+path: Info.plist
+properties:
+CFBundleDisplayName: iPhone Player
+UIBackgroundModes:
+- audio
