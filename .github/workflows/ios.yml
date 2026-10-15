@@ -1,3 +1,4 @@
+
 name: Build iPhone Player
 
 on:
@@ -29,5 +30,19 @@ jobs:
             -scheme iPhonePlayer \
             -configuration Debug \
             -destination 'generic/platform=iOS Simulator' \
+            -derivedDataPath build \
             CODE_SIGNING_ALLOWED=NO \
             build
+
+      - name: Package app
+        working-directory: ios-player
+        run: |
+          mkdir -p Payload
+          cp -R build/Build/Products/Debug-iphonesimulator/iPhonePlayer.app Payload/
+          zip -r iPhonePlayer-simulator.zip Payload
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: iPhonePlayer-simulator
+          path: ios-player/iPhonePlayer-simulator.zip
