@@ -1,42 +1,47 @@
+
 name: Build iPhone Player
 
-‘on’:
-push:
-branches:
-- main
-workflow_dispatch:
+'on':
+  push:
+    branches:
+      - main
+  workflow_dispatch:
 
 jobs:
-build:
-runs-on: macos-latest
-steps:
-- name: Download repository
-uses: actions/checkout@v4
+  build:
+    runs-on: macos-latest
+    steps:
+      - name: Download repository
+        uses: actions/checkout@v4
 
-  - name: Install XcodeGen
-    run: brew install xcodegen
-  - name: Generate Xcode project
-    working-directory: ios-player
-    run: xcodegen generate
-  - name: Build for iPhone
-    working-directory: ios-player
-    run: |
-      xcodebuild \
-        -project iPhonePlayer.xcodeproj \
-        -scheme iPhonePlayer \
-        -configuration Release \
-        -destination 'generic/platform=iOS' \
-        -derivedDataPath build \
-        CODE_SIGNING_ALLOWED=NO \
-        build
-  - name: Package IPA
-    working-directory: ios-player
-    run: |
-      mkdir -p Payload
-      cp -R build/Build/Products/Release-iphoneos/iPhonePlayer.app Payload/
-      /usr/bin/zip -r iPhonePlayer-unsigned.ipa Payload
-  - name: Upload IPA
-    uses: actions/upload-artifact@v4
-    with:
-      name: iPhonePlayer-unsigned
-      path: ios-player/iPhonePlayer-unsigned.ipa
+      - name: Install XcodeGen
+        run: brew install xcodegen
+
+      - name: Generate Xcode project
+        working-directory: ios-player
+        run: xcodegen generate
+
+      - name: Build for iPhone
+        working-directory: ios-player
+        run: |
+          xcodebuild \
+            -project iPhonePlayer.xcodeproj \
+            -scheme iPhonePlayer \
+            -configuration Release \
+            -destination 'generic/platform=iOS' \
+            -derivedDataPath build \
+            CODE_SIGNING_ALLOWED=NO \
+            build
+
+      - name: Package IPA
+        working-directory: ios-player
+        run: |
+          mkdir -p Payload
+          cp -R build/Build/Products/Release-iphoneos/iPhonePlayer.app Payload/
+          /usr/bin/zip -r iPhonePlayer-unsigned.ipa Payload
+
+      - name: Upload IPA
+        uses: actions/upload-artifact@v4
+        with:
+          name: iPhonePlayer-unsigned
+          path: ios-player/iPhonePlayer-unsigned.ipa
