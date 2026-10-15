@@ -1,6 +1,6 @@
 name: Build iPhone Player
 
-on:
+‘on’:
 push:
 branches:
 - main
