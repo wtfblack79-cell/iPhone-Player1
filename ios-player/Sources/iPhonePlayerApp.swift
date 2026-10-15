@@ -27,7 +27,32 @@ struct ContentView: View {
         .autoconnect()
 
     var body: some View {
-        VStack(spacing: 22) {
+        ZStack {
+    LinearGradient(
+        colors: [
+            Color(red: 0.02, green: 0.04, blue: 0.13),
+            Color(red: 0.04, green: 0.10, blue: 0.28),
+            Color(red: 0.12, green: 0.04, blue: 0.24)
+        ],
+        startPoint: .topLeading,
+        endPoint: .bottomTrailing
+    )
+    .ignoresSafeArea()
+            
+    
+    Circle()
+        .fill(Color.cyan.opacity(0.18))
+        .frame(width: 250, height: 250)
+        .blur(radius: 80)
+        .offset(x: -100, y: -180)
+
+    Circle()
+        .fill(Color.purple.opacity(0.20))
+        .frame(width: 250, height: 250)
+        .blur(radius: 80)
+        .offset(x: 120, y: 200)
+
+    VStack(spacing: 22) {
             Image(systemName: "waveform")
                 .font(.system(size: 54))
 
