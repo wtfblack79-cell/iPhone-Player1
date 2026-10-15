@@ -28,10 +28,10 @@ struct ContentView: View {
 
     var body: some View {
         VStack(spacing: 22) {
-            Image(systemName: "headphones")
+            Image(systemName: "waveform")
                 .font(.system(size: 54))
 
-            Text("iPhone Player")
+            Text("PlayBook")
                 .font(.largeTitle)
                 .bold()
 
