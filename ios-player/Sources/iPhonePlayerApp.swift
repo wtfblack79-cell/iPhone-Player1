@@ -20,6 +20,9 @@ struct ContentView: View {
     @State private var duration: Double = 0
     @State private var speed: Float = 1.0
     @State private var showingImporter = false
+    @State private var showingLibrary = false
+    @State private var libraryFiles: [URL] = []
+    @State private var currentScreenIsLibrary = false
     @State private var errorMessage = ""
 
     private let timer = Timer
@@ -159,12 +162,18 @@ loadAudio(result)
 }
     .overlay(alignment: .topTrailing) {
         Menu {
-            Button {
-                showingImporter = true
-            } label: {
-                Label("Дропнуть аудио", systemImage: "folder")
-            }
-        } label: {
+    Button {
+        showingImporter = true
+    } label: {
+        Label("Дропнуть аудио", systemImage: "folder")
+    }
+
+    Button {
+        showingLibrary = true
+    } label: {
+        Label("Библиотека", systemImage: "books.vertical")
+    }
+} label: {
             Image(systemName: "ellipsis")
                 .font(.system(size: 24, weight: .bold))
                 .foregroundStyle(.white)
@@ -245,8 +254,36 @@ loadAudio(result)
     }
 
     private func timeString(_ seconds: Double) -> String {
-        guard seconds.isFinite && seconds >= 0 else { return "0:00" }
-        let total = Int(seconds)
-        return "\(total / 60):" + String(format: "%02d", total % 60)
+    guard seconds.isFinite && seconds >= 0 else { return "0:00" }
+    let total = Int(seconds)
+    return "\(total / 60):" + String(format: "%02d", total % 60)
+}
+
+private func refreshLibrary() {
+    let documents = FileManager.default.urls(
+        for: .documentDirectory,
+        in: .userDomainMask
+    )[0]
+
+    do {
+        let files = try FileManager.default.contentsOfDirectory(
+            at: documents,
+            includingPropertiesForKeys: nil
+        )
+
+        libraryFiles = files.filter { url in
+            [
+                "mp3", "m4a", "m4b", "aac",
+                "wav", "aiff", "caf", "flac"
+            ].contains(url.pathExtension.lowercased())
+        }
+        .sorted {
+            $0.lastPathComponent.localizedCaseInsensitiveCompare(
+                $1.lastPathComponent
+            ) == .orderedAscending
+        }
+    } catch {
+        errorMessage = "Не удалось загрузить библиотеку"
     }
+}
 }
