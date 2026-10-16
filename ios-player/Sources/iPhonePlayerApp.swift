@@ -55,6 +55,34 @@ struct ContentView: View {
         .blur(radius: 80)
         .offset(x: 120, y: 200)
 
+    if currentScreenIsLibrary {
+    VStack(spacing: 16) {
+        Text("Библиотека")
+            .font(.largeTitle)
+            .bold()
+
+        if libraryFiles.isEmpty {
+            Text("Аудиокниг пока нет")
+                .foregroundStyle(.white.opacity(0.7))
+        } else {
+            List {
+                ForEach(libraryFiles, id: \.self) { file in
+                    Button {
+                        loadAudio(.success([file]))
+                        currentScreenIsLibrary = false
+                    } label: {
+                        Text(file.deletingPathExtension().lastPathComponent)
+                            .foregroundStyle(.white)
+                    }
+                    .listRowBackground(Color.white.opacity(0.08))
+                }
+            }
+            .scrollContentBackground(.hidden)
+        }
+
+        Spacer(minLength: 0)
+    }
+} else {
     VStack(spacing: 22) {
             Image(systemName: "waveform")
                 .font(.system(size: 54))
@@ -140,6 +168,7 @@ struct ContentView: View {
 
             Spacer(minLength: 20)
         }
+    }
         .padding(24)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .foregroundStyle(.white)
@@ -169,10 +198,11 @@ loadAudio(result)
     }
 
     Button {
-        showingLibrary = true
-    } label: {
-        Label("Библиотека", systemImage: "books.vertical")
-    }
+    refreshLibrary()
+    currentScreenIsLibrary = true
+} label: {
+    Label("Библиотека", systemImage: "books.vertical")
+}
 } label: {
             Image(systemName: "ellipsis")
                 .font(.system(size: 24, weight: .bold))
@@ -184,7 +214,24 @@ loadAudio(result)
         .padding(.top, 12)
         .padding(.trailing, 18)
     }
+    .overlay(alignment: .topLeading) {
+        if currentScreenIsLibrary {
+            Button {
+                currentScreenIsLibrary = false
+            } label: {
+                Image(systemName: "arrow.left")
+                    .font(.system(size: 24, weight: .bold))
+                    .foregroundStyle(.white)
+                    .frame(width: 44, height: 44)
+                    .background(Color.white.opacity(0.12))
+                    .clipShape(Circle())
+            }
+            .buttonStyle(.plain)
+            .padding(.top, 12)
+            .padding(.leading, 18)
+        }
     }
+}
 
     
 
