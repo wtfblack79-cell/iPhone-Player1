@@ -228,6 +228,7 @@ loadAudio(result)
             speed = 1.0
             isPlaying = false
             errorMessage = ""
+            refreshLibrary()
         } catch {
             errorMessage = "Не удалось открыть файл: \(error.localizedDescription)"
         }
