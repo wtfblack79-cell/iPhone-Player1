@@ -231,6 +231,7 @@ struct ContentView: View {
         }
     }
 }
+}
 
     private func loadAudio(_ result: Result<[URL], Error>) {
         do {
