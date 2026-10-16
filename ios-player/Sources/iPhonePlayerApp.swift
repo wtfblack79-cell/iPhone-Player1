@@ -65,13 +65,6 @@ struct ContentView: View {
                 .multilineTextAlignment(.center)
                 .lineLimit(3)
 
-            Button {
-                showingImporter = true
-            } label: {
-                Label("Выбрать аудиокнигу", systemImage: "folder")
-            }
-            .buttonStyle(.borderedProminent)
-
             VStack(spacing: 8) {
                 Slider(
                     value: $progress,
