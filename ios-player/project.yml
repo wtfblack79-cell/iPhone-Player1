@@ -16,5 +16,6 @@ targets:
       path: Info.plist
       properties:
         CFBundleDisplayName: PlayBook
+        UILaunchScreen: {}
         UIBackgroundModes:
           - audio
