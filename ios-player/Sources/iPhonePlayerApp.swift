@@ -83,94 +83,135 @@ struct ContentView: View {
         Spacer(minLength: 0)
     }
 } else {
-    VStack(spacing: 22) {
-            Image(systemName: "waveform")
-                .font(.system(size: 54))
+    VStack(spacing: 0) {
+    // Название строго по центру экрана
+    Text("PlayBook")
+        .font(.largeTitle)
+        .bold()
+        .frame(maxWidth: .infinity)
+        .padding(.top, 8)
 
-            Text("PlayBook")
-                .font(.largeTitle)
-                .bold()
+    // Короткая волна под названием
+    Image(systemName: "waveform")
+        .font(.system(size: 22))
+        .padding(.top, 4)
 
-            Text(fileName)
-                .font(.headline)
-                .multilineTextAlignment(.center)
-                .lineLimit(3)
+    // Название аудиокниги
+    Text(fileName)
+        .font(.headline)
+        .multilineTextAlignment(.center)
+        .lineLimit(3)
+        .padding(.horizontal, 12)
+        .padding(.top, 18)
 
-            VStack(spacing: 8) {
-                Slider(
-                    value: $progress,
-                    in: 0...max(duration, 1),
-                    onEditingChanged: { editing in
-                        if !editing {
-                            player?.currentTime = progress
-                        }
-                    }
-                )
-                .disabled(player == nil)
+    Spacer(minLength: 20)
 
-                HStack {
-                    Text(timeString(progress))
-                    Spacer()
-                    Text(timeString(duration))
-                }
-                .font(.caption.monospacedDigit())
-            }
-
-            HStack(spacing: 35) {
-                Button {
-                    seek(by: -15)
-                } label: {
-                    Image(systemName: "gobackward.15")
-                        .font(.system(size: 30))
-                }
-                .disabled(player == nil)
-
-                Button {
-                    togglePlayback()
-                } label: {
-                    Image(systemName: isPlaying ? "pause.circle.fill" : "play.circle.fill")
-                        .font(.system(size: 64))
-                }
-                .disabled(player == nil)
-
-                Button {
-                    seek(by: 15)
-                } label: {
-                    Image(systemName: "goforward.15")
-                        .font(.system(size: 30))
-                }
-                .disabled(player == nil)
-            }
-            .buttonStyle(.plain)
-
-            HStack {
-                Text("Скорость")
-                Spacer()
-
-                Picker("Скорость", selection: $speed) {
-                    Text("0,75×").tag(Float(0.75))
-                    Text("1×").tag(Float(1.0))
-                    Text("1,25×").tag(Float(1.25))
-                    Text("1,5×").tag(Float(1.5))
-                    Text("2×").tag(Float(2.0))
-                }
-                .pickerStyle(.menu)
-                .onChange(of: speed) { newSpeed in
-                    player?.rate = newSpeed
+    // Полоса прогресса и время
+    VStack(spacing: 8) {
+        Slider(
+            value: $progress,
+            in: 0...max(duration, 1),
+            onEditingChanged: { editing in
+                if !editing {
+                    player?.currentTime = progress
                 }
             }
+        )
+        .disabled(player == nil)
 
-            if !errorMessage.isEmpty {
-                Text(errorMessage)
-                    .foregroundStyle(.red)
-                    .font(.footnote)
-            }
-
-            Spacer(minLength: 20)
+        HStack {
+            Text(timeString(progress))
+            Spacer()
+            Text(timeString(duration))
         }
-        .padding(24)
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .foregroundStyle(.white)
+        .font(.caption.monospacedDigit())
+    }
+
+    Spacer(minLength: 22)
+
+    // Перемотка и воспроизведение
+    HStack(spacing: 35) {
+        Button {
+            seek(by: -15)
+        } label: {
+            Image(systemName: "gobackward.15")
+                .font(.system(size: 30))
+        }
+        .disabled(player == nil)
+
+        Button {
+            togglePlayback()
+        } label: {
+            Image(
+                systemName: isPlaying
+                    ? "pause.circle.fill"
+                    : "play.circle.fill"
+            )
+            .font(.system(size: 64))
+        }
+        .disabled(player == nil)
+
+        Button {
+            seek(by: 15)
+        } label: {
+            Image(systemName: "goforward.15")
+                .font(.system(size: 30))
+        }
+        .disabled(player == nil)
+    }
+    .buttonStyle(.plain)
+
+    Spacer(minLength: 30)
+
+    // Овальная кнопка скорости внизу слева
+    HStack {
+        Menu {
+            Picker("Скорость", selection: $speed) {
+                Text("0,75×").tag(Float(0.75))
+                Text("1×").tag(Float(1.0))
+                Text("1,25×").tag(Float(1.25))
+                Text("1,5×").tag(Float(1.5))
+                Text("2×").tag(Float(2.0))
+            }
+        } label: {
+            HStack(spacing: 5) {
+                Text("\(speed, specifier: "%g")×")
+                    .font(.system(size: 16, weight: .medium))
+
+                Image(systemName: "chevron.up.chevron.down")
+                    .font(.system(size: 10, weight: .medium))
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 10)
+            .overlay {
+                RoundedRectangle(cornerRadius: 18)
+                    .stroke(
+                        Color.white.opacity(0.8),
+                        lineWidth: 1
+                    )
+            }
+        }
+        .onChange(of: speed) { newSpeed in
+            player?.rate = newSpeed
+        }
+
+        Spacer()
+    }
+    .padding(.bottom, 8)
+
+    // Сообщение об ошибке
+    if !errorMessage.isEmpty {
+        Text(errorMessage)
+            .foregroundStyle(.red)
+            .font(.footnote)
+            .padding(.top, 8)
+    }
+
+    Spacer(minLength: 8)
+}
+.padding(24)
+.frame(maxWidth: .infinity, maxHeight: .infinity)
+.foregroundStyle(.white)
                 .onReceive(timer) { _ in
             guard let player = player else { return }
             progress = player.currentTime
