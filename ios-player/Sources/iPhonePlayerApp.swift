@@ -171,38 +171,38 @@ struct ContentView: View {
         .padding(24)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .foregroundStyle(.white)
-        .onReceive(timer) { _ in
+                .onReceive(timer) { _ in
             guard let player = player else { return }
             progress = player.currentTime
             isPlaying = player.isPlaying
 
             if !player.isPlaying && player.currentTime >= player.duration {
-isPlaying = false
-}
-}
-.fileImporter(
-isPresented: $showingImporter,
-allowedContentTypes: [.audio, .mp3, .mpeg4Audio],
-allowsMultipleSelection: false
-) { result in
-loadAudio(result)
-}
-}
+                isPlaying = false
+            }
+        }
+        .fileImporter(
+            isPresented: $showingImporter,
+            allowedContentTypes: [.audio, .mp3, .mpeg4Audio],
+            allowsMultipleSelection: false
+        ) { result in
+            loadAudio(result)
+        }
+    }
     .overlay(alignment: .topTrailing) {
         Menu {
-    Button {
-        showingImporter = true
-    } label: {
-        Label("Дропнуть аудио", systemImage: "folder")
-    }
+            Button {
+                showingImporter = true
+            } label: {
+                Label("Дропнуть аудио", systemImage: "folder")
+            }
 
-    Button {
-    refreshLibrary()
-    currentScreenIsLibrary = true
-} label: {
-    Label("Библиотека", systemImage: "books.vertical")
-}
-} label: {
+            Button {
+                refreshLibrary()
+                currentScreenIsLibrary = true
+            } label: {
+                Label("Библиотека", systemImage: "books.vertical")
+            }
+        } label: {
             Image(systemName: "ellipsis")
                 .font(.system(size: 24, weight: .bold))
                 .foregroundStyle(.white)
@@ -231,8 +231,6 @@ loadAudio(result)
         }
     }
 }
-
-    
 
     private func loadAudio(_ result: Result<[URL], Error>) {
         do {
