@@ -184,11 +184,13 @@ struct ContentView: View {
             isPresented: $showingImporter,
             allowedContentTypes: [.audio, .mp3, .mpeg4Audio],
             allowsMultipleSelection: false
+
         ) { result in
             loadAudio(result)
         }
     }
-    .overlay(alignment: .topTrailing) {
+}
+.overlay(alignment: .topTrailing) {
         Menu {
             Button {
                 showingImporter = true
