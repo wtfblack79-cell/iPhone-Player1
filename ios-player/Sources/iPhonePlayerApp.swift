@@ -168,7 +168,6 @@ struct ContentView: View {
 
             Spacer(minLength: 20)
         }
-    }
         .padding(24)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .foregroundStyle(.white)
