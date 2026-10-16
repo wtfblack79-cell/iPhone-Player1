@@ -135,9 +135,11 @@ struct ContentView: View {
                     .font(.footnote)
             }
 
-            Spacer()
+            Spacer(minLength: 20)
         }
         .padding(24)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .foregroundStyle(.white)
         .onReceive(timer) { _ in
             guard let player = player else { return }
             progress = player.currentTime
