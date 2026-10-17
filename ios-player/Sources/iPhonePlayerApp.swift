@@ -170,7 +170,7 @@ struct ContentView: View {
 
 Spacer(minLength: 22)
 VStack(spacing: 0) {
-    Spacer(minLength: 0)          // ← перенёс сюда
+    Spacer(minLength: 0)
     
     HStack(spacing: 35) {
         seekButton(seconds: -15, symbol: "gobackward.15")
@@ -189,6 +189,7 @@ VStack(spacing: 0) {
     }
     .buttonStyle(.plain)
     .frame(maxWidth: .infinity)
+    .padding(.bottom, 24)
 }
 .frame(maxHeight: .infinity)
 
