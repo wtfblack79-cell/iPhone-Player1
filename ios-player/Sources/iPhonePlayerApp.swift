@@ -1,4 +1,3 @@
-
 import SwiftUI
 import AVFoundation
 import UniformTypeIdentifiers
@@ -104,7 +103,7 @@ struct ContentView: View {
         .padding(.horizontal, 12)
         .padding(.top, 18)
 
-            Spacer(minLength: 140)   // ← большой отступ сверху — толкает всё вниз
+    Spacer(minLength: 20)
 
     // Полоса прогресса и время
     VStack(spacing: 8) {
@@ -127,7 +126,7 @@ struct ContentView: View {
         .font(.caption.monospacedDigit())
     }
 
-    Spacer(minLength: 36)
+    Spacer(minLength: 22)
 
     // Перемотка и воспроизведение
     HStack(spacing: 35) {
@@ -161,7 +160,7 @@ struct ContentView: View {
     }
     .buttonStyle(.plain)
 
-    Spacer(minLength: 40)
+    Spacer(minLength: 30)
 
     // Овальная кнопка скорости внизу слева
     HStack {
@@ -197,7 +196,7 @@ struct ContentView: View {
 
         Spacer()
     }
-    .padding(.bottom, 16)
+    .padding(.bottom, 8)
 
     // Сообщение об ошибке
     if !errorMessage.isEmpty {
@@ -207,7 +206,9 @@ struct ContentView: View {
             .padding(.top, 8)
     }
 
-    Spacer(minLength: 24)
+    Spacer(minLength: 8)
+}
+.padding(24)
 .frame(maxWidth: .infinity, maxHeight: .infinity)
 .foregroundStyle(.white)
                 .onReceive(timer) { _ in
