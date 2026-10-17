@@ -190,6 +190,7 @@ HStack(spacing: 35) {
     seekButton(seconds: 15, symbol: "goforward.15")
 }
 .buttonStyle(.plain)
+.padding(.top, 35)
 .frame(maxWidth: .infinity)
 
 Spacer(minLength: 0)
