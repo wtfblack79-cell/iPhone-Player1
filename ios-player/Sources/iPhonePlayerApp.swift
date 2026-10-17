@@ -338,7 +338,6 @@ private var libraryView: some View {
                             }
                         }
                     }
-                }
 
                 }
             }
