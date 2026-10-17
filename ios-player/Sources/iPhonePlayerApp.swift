@@ -189,14 +189,6 @@ struct ContentView: View {
             }
             .buttonStyle(.plain)
 
-            Spacer(minLength: 30)
-
-            HStack {
-                speedButton
-                Spacer()
-            }
-            .padding(.bottom, 8)
-
             if !errorMessage.isEmpty {
                 Text(errorMessage)
                     .foregroundStyle(.red)
@@ -204,10 +196,21 @@ struct ContentView: View {
                     .padding(.top, 8)
             }
 
-            Spacer(minLength: 8)
+            Spacer(minLength: 0)
         }
-        .padding(24)
+        .padding(.horizontal, 24)
+        .padding(.top, 24)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .safeAreaInset(edge: .bottom, spacing: 0) {
+            HStack {
+                speedButton
+                Spacer()
+            }
+            .padding(.horizontal, 24)
+            .padding(.top, 8)
+            .padding(.bottom, 4)
+            .background(.clear)
+        }
     }
 
     private var speedButton: some View {
