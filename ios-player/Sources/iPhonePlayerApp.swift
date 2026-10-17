@@ -209,14 +209,15 @@ VStack(spacing: 0) {
         .padding(.top, 24)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .safeAreaInset(edge: .bottom, spacing: 0) {
-            HStack {
-                speedButton
-                Spacer()
-            }
-            .padding(.horizontal, 24)
-            .padding(.top, 8)
-            .padding(.bottom, 4)
-            .background(.clear)
+HStack(spacing: 12) {
+    speedButton
+    sleepTimerButton
+    Spacer()
+}
+.padding(.horizontal, 24)
+.padding(.top, 8)
+.padding(.bottom, 4)
+.background(.clear)
         }
     }
 
@@ -248,6 +249,27 @@ VStack(spacing: 0) {
             player?.rate = newSpeed
         }
     }
+    private var sleepTimerButton: some View {
+    Menu {
+        Button("Выкл") { }
+        Button("5 мин") { }
+        Button("10 мин") { }
+        Button("15 мин") { }
+        Button("30 мин") { }
+        Button("45 мин") { }
+        Button("1 час") { }
+        Button("Конец главы") { }
+    } label: {
+        Image(systemName: "moon.zzz")
+            .font(.system(size: 16, weight: .medium))
+            .foregroundStyle(.white)
+            .frame(width: 44, height: 44)
+            .overlay {
+                Circle()
+                    .stroke(Color.white.opacity(0.8), lineWidth: 1)
+            }
+    }
+}
 
     private var libraryView: some View {
         VStack(spacing: 16) {
