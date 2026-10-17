@@ -170,29 +170,28 @@ struct ContentView: View {
 
             Spacer(minLength: 22)
 
-            Spacer(minLength: 80)
-
-HStack(spacing: 35) {
-    seekButton(seconds: -15, symbol: "gobackward.15")
-
-    Button {
-        togglePlayback()
-    } label: {
-        Image(
-            systemName: isPlaying
-                ? "pause.circle.fill"
-                : "play.circle.fill"
-        )
-        .font(.system(size: 64))
-    }
-    .disabled(player == nil)
-
-    seekButton(seconds: 15, symbol: "goforward.15")
-}
-.buttonStyle(.plain)
-.frame(maxWidth: .infinity)
-
-Spacer(minLength: 0)
+            Spacer(minLength: 22)
+            VStack(spacing: 0) {
+                HStack(spacing: 35) {
+                    seekButton(seconds: -15, symbol: "gobackward.15")
+                    Button {
+                        togglePlayback()
+                    } label: {
+                        Image(
+                            systemName: isPlaying
+                                ? "pause.circle.fill"
+                                : "play.circle.fill"
+                        )
+                        .font(.system(size: 64))
+                    }
+                    .disabled(player == nil)
+                    seekButton(seconds: 15, symbol: "goforward.15")
+                }
+                .buttonStyle(.plain)
+                .frame(maxWidth: .infinity)
+                Spacer(minLength: 0)
+            }
+            .frame(maxHeight: .infinity)
 
             if !errorMessage.isEmpty {
                 Text(errorMessage)
