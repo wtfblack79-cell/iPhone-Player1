@@ -26,6 +26,7 @@ struct ContentView: View {
     @State private var showingCreateFolder = false
     @State private var newFolderName = ""
     @State private var folders: [String] = []
+    @State private var fileFolders: [String: String] = [:]
 
     private let timer = Timer.publish(
         every: 0.5,
@@ -274,7 +275,7 @@ HStack(spacing: 12) {
     }
 }
 
-private var libraryView: some View {
+    private var libraryView: some View {
     VStack(spacing: 16) {
         Text("Библиотека")
             .font(.largeTitle)
