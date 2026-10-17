@@ -79,18 +79,15 @@ struct ContentView: View {
             .scrollContentBackground(.hidden)
         }
 
-        Spacer(minLength: 0)
-    }
-} else {
-    VStack(spacing: 0) {
-    // Название строго по центру экрана
+        VStack(spacing: 0) {
+    // Заголовок строго по центру
     Text("PlayBook")
         .font(.largeTitle)
         .bold()
         .frame(maxWidth: .infinity)
         .padding(.top, 8)
 
-    // Короткая волна под названием
+    // Короткая волна
     Image(systemName: "waveform")
         .font(.system(size: 22))
         .padding(.top, 4)
@@ -105,7 +102,7 @@ struct ContentView: View {
 
     Spacer(minLength: 20)
 
-    // Полоса прогресса и время
+    // Прогресс и время
     VStack(spacing: 8) {
         Slider(
             value: $progress,
@@ -128,7 +125,7 @@ struct ContentView: View {
 
     Spacer(minLength: 22)
 
-    // Перемотка и воспроизведение
+    // Кнопки управления
     HStack(spacing: 35) {
         Button {
             seek(by: -15)
@@ -160,9 +157,10 @@ struct ContentView: View {
     }
     .buttonStyle(.plain)
 
+    // Всё свободное место до кнопки скорости
     Spacer(minLength: 70)
 
-    // Овальная кнопка скорости внизу слева
+    // Кнопка скорости внизу слева
     HStack {
         Menu {
             Picker("Скорость", selection: $speed) {
@@ -205,8 +203,6 @@ struct ContentView: View {
             .font(.footnote)
             .padding(.top, 8)
     }
-
-    Spacer(minLength: 8)
 }
 .padding(24)
 .frame(maxWidth: .infinity, maxHeight: .infinity)
