@@ -148,29 +148,32 @@ struct ContentView: View {
 
             Spacer(minLength: 20)
 
-            VStack(spacing: 8) {
-                Slider(
-                    value: $progress,
-                    in: 0...max(duration, 1),
-                    onEditingChanged: { editing in
-                        if !editing {
-                            player?.currentTime = progress
-                        }
-                    }
-                )
-                .disabled(player == nil)
-
-                HStack {
-                    Text(timeString(progress))
-                    Spacer()
-                    Text(timeString(duration))
-                }
-                .font(.caption.monospacedDigit())
-            }
-
-Spacer(minLength: 22)
+           Spacer(minLength: 22)
 VStack(spacing: 0) {
     Spacer(minLength: 0)
+    
+    // Полоска теперь здесь — прямо над кнопками
+    VStack(spacing: 8) {
+        Slider(
+            value: $progress,
+            in: 0...max(duration, 1),
+            onEditingChanged: { editing in
+                if !editing {
+                    player?.currentTime = progress
+                }
+            }
+        )
+        .disabled(player == nil)
+
+        HStack {
+            Text(timeString(progress))
+            Spacer()
+            Text(timeString(duration))
+        }
+        .font(.caption.monospacedDigit())
+    }
+    .padding(.horizontal)
+    .padding(.bottom, 20)   // расстояние между полоской и кнопками
     
     HStack(spacing: 35) {
         seekButton(seconds: -15, symbol: "gobackward.15")
