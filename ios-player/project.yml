@@ -8,7 +8,7 @@ targets:
     platform: iOS
     sources:
       - path: Sources
-        settings:
+    settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.personal.iphoneplayer
         SWIFT_VERSION: "5.0"
