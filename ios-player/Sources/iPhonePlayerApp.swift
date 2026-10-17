@@ -1,3 +1,4 @@
+
 import SwiftUI
 import AVFoundation
 import UniformTypeIdentifiers
@@ -19,151 +20,197 @@ struct ContentView: View {
     @State private var duration: Double = 0
     @State private var speed: Float = 1.0
     @State private var showingImporter = false
-    @State private var showingLibrary = false
     @State private var libraryFiles: [URL] = []
     @State private var currentScreenIsLibrary = false
     @State private var errorMessage = ""
 
-    private let timer = Timer
-        .publish(every: 0.5, on: .main, in: .common)
-        .autoconnect()
+    private let timer = Timer.publish(
+        every: 0.5,
+        on: .main,
+        in: .common
+    ).autoconnect()
+
+    private let audioExtensions: Set<String> = [
+        "mp3", "m4a", "m4b", "aac",
+        "wav", "aiff", "caf", "flac"
+    ]
 
     var body: some View {
         ZStack {
-    LinearGradient(
-        colors: [
-            Color(red: 0.02, green: 0.04, blue: 0.13),
-            Color(red: 0.04, green: 0.10, blue: 0.28),
-            Color(red: 0.12, green: 0.04, blue: 0.24)
-        ],
-        startPoint: .topLeading,
-        endPoint: .bottomTrailing
-    )
-    .ignoresSafeArea()
-            
-    
-    Circle()
-        .fill(Color.cyan.opacity(0.18))
-        .frame(width: 250, height: 250)
-        .blur(radius: 80)
-        .offset(x: -100, y: -180)
+            background
 
-    Circle()
-        .fill(Color.purple.opacity(0.20))
-        .frame(width: 250, height: 250)
-        .blur(radius: 80)
-        .offset(x: 120, y: 200)
-
-    if currentScreenIsLibrary {
-    VStack(spacing: 16) {
-        Text("Библиотека")
-            .font(.largeTitle)
-            .bold()
-
-        if libraryFiles.isEmpty {
-            Text("Аудиокниг пока нет")
-                .foregroundStyle(.white.opacity(0.7))
-        } else {
-            List {
-                ForEach(libraryFiles, id: \.self) { file in
-                    Button {
-                        loadAudio(.success([file]))
-                        currentScreenIsLibrary = false
-                    } label: {
-                        Text(file.deletingPathExtension().lastPathComponent)
-                            .foregroundStyle(.white)
-                    }
-                    .listRowBackground(Color.white.opacity(0.08))
-                }
+            if currentScreenIsLibrary {
+                libraryView
+            } else {
+                playerView
             }
-            .scrollContentBackground(.hidden)
         }
-
-        Spacer(minLength: 0)
-    }
-} else {
-    VStack(spacing: 0) {
-    // Название строго по центру экрана
-    Text("PlayBook")
-        .font(.largeTitle)
-        .bold()
-        .frame(maxWidth: .infinity)
-        .padding(.top, 8)
-
-    // Короткая волна под названием
-    Image(systemName: "waveform")
-        .font(.system(size: 22))
-        .padding(.top, 4)
-
-    // Название аудиокниги
-    Text(fileName)
-        .font(.headline)
-        .multilineTextAlignment(.center)
-        .lineLimit(3)
-        .padding(.horizontal, 12)
-        .padding(.top, 18)
-
-    Spacer(minLength: 20)
-
-    // Полоса прогресса и время
-    VStack(spacing: 8) {
-        Slider(
-            value: $progress,
-            in: 0...max(duration, 1),
-            onEditingChanged: { editing in
-                if !editing {
-                    player?.currentTime = progress
+        .foregroundStyle(.white)
+        .onReceive(timer) { _ in
+            guard let player else { return }
+            progress = player.currentTime
+            isPlaying = player.isPlaying
+        }
+        .fileImporter(
+            isPresented: $showingImporter,
+            allowedContentTypes: [.audio, .mp3, .mpeg4Audio],
+            allowsMultipleSelection: false
+        ) { result in
+            loadAudio(result)
+        }
+        .overlay(alignment: .topTrailing) {
+            Menu {
+                Button {
+                    showingImporter = true
+                } label: {
+                    Label("Дропнуть аудио", systemImage: "folder")
                 }
-            }
-        )
-        .disabled(player == nil)
 
-        HStack {
-            Text(timeString(progress))
-            Spacer()
-            Text(timeString(duration))
+                Button {
+                    refreshLibrary()
+                    currentScreenIsLibrary = true
+                } label: {
+                    Label("Библиотека", systemImage: "books.vertical")
+                }
+            } label: {
+                Image(systemName: "ellipsis")
+                    .font(.system(size: 24, weight: .bold))
+                    .frame(width: 44, height: 44)
+                    .background(Color.white.opacity(0.12))
+                    .clipShape(Circle())
+            }
+            .padding(.top, 12)
+            .padding(.trailing, 18)
         }
-        .font(.caption.monospacedDigit())
+        .overlay(alignment: .topLeading) {
+            if currentScreenIsLibrary {
+                Button {
+                    currentScreenIsLibrary = false
+                } label: {
+                    Image(systemName: "arrow.left")
+                        .font(.system(size: 24, weight: .bold))
+                        .frame(width: 44, height: 44)
+                        .background(Color.white.opacity(0.12))
+                        .clipShape(Circle())
+                }
+                .buttonStyle(.plain)
+                .padding(.top, 12)
+                .padding(.leading, 18)
+            }
+        }
     }
 
-    Spacer(minLength: 22)
-
-    // Перемотка и воспроизведение
-    HStack(spacing: 35) {
-        Button {
-            seek(by: -15)
-        } label: {
-            Image(systemName: "gobackward.15")
-                .font(.system(size: 30))
-        }
-        .disabled(player == nil)
-
-        Button {
-            togglePlayback()
-        } label: {
-            Image(
-                systemName: isPlaying
-                    ? "pause.circle.fill"
-                    : "play.circle.fill"
+    private var background: some View {
+        ZStack {
+            LinearGradient(
+                colors: [
+                    Color(red: 0.02, green: 0.04, blue: 0.13),
+                    Color(red: 0.04, green: 0.10, blue: 0.28),
+                    Color(red: 0.12, green: 0.04, blue: 0.24)
+                ],
+                startPoint: .topLeading,
+                endPoint: .bottomTrailing
             )
-            .font(.system(size: 64))
-        }
-        .disabled(player == nil)
 
-        Button {
-            seek(by: 15)
-        } label: {
-            Image(systemName: "goforward.15")
-                .font(.system(size: 30))
+            Circle()
+                .fill(Color.cyan.opacity(0.18))
+                .frame(width: 250, height: 250)
+                .blur(radius: 80)
+                .offset(x: -100, y: -180)
+
+            Circle()
+                .fill(Color.purple.opacity(0.20))
+                .frame(width: 250, height: 250)
+                .blur(radius: 80)
+                .offset(x: 120, y: 200)
         }
-        .disabled(player == nil)
+        .ignoresSafeArea()
     }
-    .buttonStyle(.plain)
 
-    Spacer(minLength: 30)
+    private var playerView: some View {
+        VStack(spacing: 0) {
+            Text("PlayBook")
+                .font(.largeTitle)
+                .bold()
+                .frame(maxWidth: .infinity)
+                .padding(.top, 8)
 
-    // Овальная кнопка скорости внизу слева
-    HStack {
+            Image(systemName: "waveform")
+                .font(.system(size: 22))
+                .padding(.top, 4)
+
+            Text(fileName)
+                .font(.headline)
+                .multilineTextAlignment(.center)
+                .lineLimit(3)
+                .padding(.horizontal, 12)
+                .padding(.top, 18)
+
+            Spacer(minLength: 20)
+
+            VStack(spacing: 8) {
+                Slider(
+                    value: $progress,
+                    in: 0...max(duration, 1),
+                    onEditingChanged: { editing in
+                        if !editing {
+                            player?.currentTime = progress
+                        }
+                    }
+                )
+                .disabled(player == nil)
+
+                HStack {
+                    Text(timeString(progress))
+                    Spacer()
+                    Text(timeString(duration))
+                }
+                .font(.caption.monospacedDigit())
+            }
+
+            Spacer(minLength: 22)
+
+            HStack(spacing: 35) {
+                seekButton(seconds: -15, symbol: "gobackward.15")
+
+                Button {
+                    togglePlayback()
+                } label: {
+                    Image(
+                        systemName: isPlaying
+                            ? "pause.circle.fill"
+                            : "play.circle.fill"
+                    )
+                    .font(.system(size: 64))
+                }
+                .disabled(player == nil)
+
+                seekButton(seconds: 15, symbol: "goforward.15")
+            }
+            .buttonStyle(.plain)
+
+            Spacer(minLength: 30)
+
+            HStack {
+                speedButton
+                Spacer()
+            }
+            .padding(.bottom, 8)
+
+            if !errorMessage.isEmpty {
+                Text(errorMessage)
+                    .foregroundStyle(.red)
+                    .font(.footnote)
+                    .padding(.top, 8)
+            }
+
+            Spacer(minLength: 8)
+        }
+        .padding(24)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    private var speedButton: some View {
         Menu {
             Picker("Скорость", selection: $speed) {
                 Text("0,75×").tag(Float(0.75))
@@ -184,95 +231,52 @@ struct ContentView: View {
             .padding(.vertical, 10)
             .overlay {
                 RoundedRectangle(cornerRadius: 18)
-                    .stroke(
-                        Color.white.opacity(0.8),
-                        lineWidth: 1
-                    )
+                    .stroke(Color.white.opacity(0.8), lineWidth: 1)
             }
         }
         .onChange(of: speed) { newSpeed in
             player?.rate = newSpeed
         }
-
-        Spacer()
-    }
-    .padding(.bottom, 8)
-
-    // Сообщение об ошибке
-    if !errorMessage.isEmpty {
-        Text(errorMessage)
-            .foregroundStyle(.red)
-            .font(.footnote)
-            .padding(.top, 8)
     }
 
-    Spacer(minLength: 8)
-}
-.padding(24)
-.frame(maxWidth: .infinity, maxHeight: .infinity)
-.foregroundStyle(.white)
-                .onReceive(timer) { _ in
-            guard let player = player else { return }
-            progress = player.currentTime
-            isPlaying = player.isPlaying
+    private var libraryView: some View {
+        VStack(spacing: 16) {
+            Text("Библиотека")
+                .font(.largeTitle)
+                .bold()
 
-            if !player.isPlaying && player.currentTime >= player.duration {
-                isPlaying = false
+            if libraryFiles.isEmpty {
+                Text("Аудиокниг пока нет")
+                    .foregroundStyle(.white.opacity(0.7))
+            } else {
+                List {
+                    ForEach(libraryFiles, id: \.self) { file in
+                        Button {
+                            loadAudio(.success([file]))
+                            currentScreenIsLibrary = false
+                        } label: {
+                            Text(file.deletingPathExtension().lastPathComponent)
+                                .foregroundStyle(.white)
+                        }
+                        .listRowBackground(Color.white.opacity(0.08))
+                    }
+                }
+                .scrollContentBackground(.hidden)
             }
-        }
-        .fileImporter(
-            isPresented: $showingImporter,
-            allowedContentTypes: [.audio, .mp3, .mpeg4Audio],
-            allowsMultipleSelection: false
 
-        ) { result in
-            loadAudio(result)
+            Spacer(minLength: 0)
         }
     }
-}
-.overlay(alignment: .topTrailing) {
-        Menu {
-            Button {
-                showingImporter = true
-            } label: {
-                Label("Дропнуть аудио", systemImage: "folder")
-            }
 
-            Button {
-                refreshLibrary()
-                currentScreenIsLibrary = true
-            } label: {
-                Label("Библиотека", systemImage: "books.vertical")
-            }
+    private func seekButton(seconds: Double, symbol: String) -> some View {
+        Button {
+            seek(by: seconds)
         } label: {
-            Image(systemName: "ellipsis")
-                .font(.system(size: 24, weight: .bold))
-                .foregroundStyle(.white)
-                .frame(width: 44, height: 44)
-                .background(Color.white.opacity(0.12))
-                .clipShape(Circle())
+            Image(systemName: symbol)
+                .font(.system(size: 30))
         }
-        .padding(.top, 12)
-        .padding(.trailing, 18)
+        .disabled(player == nil)
     }
-    .overlay(alignment: .topLeading) {
-        if currentScreenIsLibrary {
-            Button {
-                currentScreenIsLibrary = false
-            } label: {
-                Image(systemName: "arrow.left")
-                    .font(.system(size: 24, weight: .bold))
-                    .foregroundStyle(.white)
-                    .frame(width: 44, height: 44)
-                    .background(Color.white.opacity(0.12))
-                    .clipShape(Circle())
-            }
-            .buttonStyle(.plain)
-            .padding(.top, 12)
-            .padding(.leading, 18)
-        }
-    }
-}
 
     private func loadAudio(_ result: Result<[URL], Error>) {
         do {
@@ -290,7 +294,9 @@ struct ContentView: View {
                 in: .userDomainMask
             )[0]
 
-            let destination = documents.appendingPathComponent(sourceURL.lastPathComponent)
+            let destination = documents.appendingPathComponent(
+                sourceURL.lastPathComponent
+            )
 
             if sourceURL.standardizedFileURL != destination.standardizedFileURL {
                 if FileManager.default.fileExists(atPath: destination.path) {
@@ -299,7 +305,10 @@ struct ContentView: View {
                 try FileManager.default.copyItem(at: sourceURL, to: destination)
             }
 
-            try AVAudioSession.sharedInstance().setCategory(.playback, mode: .default)
+            try AVAudioSession.sharedInstance().setCategory(
+                .playback,
+                mode: .default
+            )
             try AVAudioSession.sharedInstance().setActive(true)
 
             let newPlayer = try AVAudioPlayer(contentsOf: destination)
@@ -314,6 +323,7 @@ struct ContentView: View {
             speed = 1.0
             isPlaying = false
             errorMessage = ""
+
             refreshLibrary()
         } catch {
             errorMessage = "Не удалось открыть файл: \(error.localizedDescription)"
@@ -321,7 +331,7 @@ struct ContentView: View {
     }
 
     private func togglePlayback() {
-        guard let player = player else { return }
+        guard let player else { return }
 
         if player.isPlaying {
             player.pause()
@@ -334,43 +344,44 @@ struct ContentView: View {
     }
 
     private func seek(by seconds: Double) {
-        guard let player = player else { return }
-        let newTime = min(max(player.currentTime + seconds, 0), player.duration)
+        guard let player else { return }
+
+        let newTime = min(
+            max(player.currentTime + seconds, 0),
+            player.duration
+        )
         player.currentTime = newTime
         progress = newTime
     }
 
     private func timeString(_ seconds: Double) -> String {
-    guard seconds.isFinite && seconds >= 0 else { return "0:00" }
-    let total = Int(seconds)
-    return "\(total / 60):" + String(format: "%02d", total % 60)
-}
-
-private func refreshLibrary() {
-    let documents = FileManager.default.urls(
-        for: .documentDirectory,
-        in: .userDomainMask
-    )[0]
-
-    do {
-        let files = try FileManager.default.contentsOfDirectory(
-            at: documents,
-            includingPropertiesForKeys: nil
-        )
-
-        libraryFiles = files.filter { url in
-            [
-                "mp3", "m4a", "m4b", "aac",
-                "wav", "aiff", "caf", "flac"
-            ].contains(url.pathExtension.lowercased())
-        }
-        .sorted {
-            $0.lastPathComponent.localizedCaseInsensitiveCompare(
-                $1.lastPathComponent
-            ) == .orderedAscending
-        }
-    } catch {
-        errorMessage = "Не удалось загрузить библиотеку"
+        guard seconds.isFinite && seconds >= 0 else { return "0:00" }
+        let total = Int(seconds)
+        return "\(total / 60):" + String(format: "%02d", total % 60)
     }
-}
+
+    private func refreshLibrary() {
+        let documents = FileManager.default.urls(
+            for: .documentDirectory,
+            in: .userDomainMask
+        )[0]
+
+        do {
+            let files = try FileManager.default.contentsOfDirectory(
+                at: documents,
+                includingPropertiesForKeys: nil
+            )
+
+            libraryFiles = files.filter {
+                audioExtensions.contains($0.pathExtension.lowercased())
+            }
+            .sorted {
+                $0.lastPathComponent.localizedCaseInsensitiveCompare(
+                    $1.lastPathComponent
+                ) == .orderedAscending
+            }
+        } catch {
+            errorMessage = "Не удалось загрузить библиотеку"
+        }
+    }
 }
