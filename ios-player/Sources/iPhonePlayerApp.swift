@@ -298,6 +298,7 @@ private var libraryView: some View {
                     .listRowBackground(Color.white.opacity(0.08))
                 }
 
+                
                 ForEach(libraryFiles, id: \.self) { file in
                     Button {
                         loadAudio(.success([file]))
@@ -307,6 +308,38 @@ private var libraryView: some View {
                             .foregroundStyle(.white)
                     }
                     .listRowBackground(Color.white.opacity(0.08))
+                    .contextMenu {
+                        Menu {
+                            if folders.isEmpty {
+                                Button {
+                                    newFolderName = ""
+                                    showingCreateFolder = true
+                                } label: {
+                                    Label("Создать папку", systemImage: "folder.badge.plus")
+                                }
+                            } else {
+                                ForEach(folders, id: \.self) { folder in
+                                    Button {
+                                        moveFile(file, to: folder)
+                                    } label: {
+                                        Label(folder, systemImage: "folder")
+                                    }
+                                }
+                            }
+                        } label: {
+                            Label("Добавить в папку…", systemImage: "folder.badge.plus")
+                        }
+
+                        if fileFolders[file.lastPathComponent] != nil {
+                            Button {
+                                moveFile(file, to: nil)
+                            } label: {
+                                Label("Убрать из папки", systemImage: "folder")
+                            }
+                        }
+                    }
+                }
+
                 }
             }
             .scrollContentBackground(.hidden)
