@@ -435,7 +435,23 @@ private func createFolder() {
 
     newFolderName = ""
 }
-    private func loadAudio(_ result: Result<[URL], Error>) {
+
+private func moveFile(_ file: URL, to folder: String?) {
+    let key = file.lastPathComponent
+
+    if let folder {
+        fileFolders[key] = folder
+    } else {
+        fileFolders.removeValue(forKey: key)
+    }
+
+    UserDefaults.standard.set(
+        fileFolders,
+        forKey: "playbook.fileFolders"
+    )
+}
+
+private func loadAudio(_ result: Result<[URL], Error>) {
         do {
             guard let sourceURL = try result.get().first else { return }
 
