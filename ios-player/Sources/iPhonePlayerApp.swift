@@ -104,7 +104,7 @@ struct ContentView: View {
         .padding(.horizontal, 12)
         .padding(.top, 18)
 
-    Spacer(minLength: 20)
+        Spacer()   // ← этот Spacer теперь толкает весь блок управления вниз
 
     // Полоса прогресса и время
     VStack(spacing: 8) {
@@ -127,7 +127,7 @@ struct ContentView: View {
         .font(.caption.monospacedDigit())
     }
 
-    Spacer(minLength: 22)
+    Spacer(minLength: 28)
 
     // Перемотка и воспроизведение
     HStack(spacing: 35) {
@@ -161,7 +161,7 @@ struct ContentView: View {
     }
     .buttonStyle(.plain)
 
-    Spacer(minLength: 30)
+    Spacer(minLength: 36)
 
     // Овальная кнопка скорости внизу слева
     HStack {
@@ -197,7 +197,7 @@ struct ContentView: View {
 
         Spacer()
     }
-    .padding(.bottom, 8)
+    .padding(.bottom, 12)
 
     // Сообщение об ошибке
     if !errorMessage.isEmpty {
@@ -207,7 +207,7 @@ struct ContentView: View {
             .padding(.top, 8)
     }
 
-    Spacer(minLength: 8)
+    Spacer(minLength: 16)
 }
 .padding(24)
 .frame(maxWidth: .infinity, maxHeight: .infinity)
