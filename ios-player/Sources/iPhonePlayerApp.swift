@@ -160,7 +160,7 @@ struct ContentView: View {
     }
     .buttonStyle(.plain)
 
-    Spacer(minLength: 30)
+    Spacer(minLength: 70)
 
     // Овальная кнопка скорости внизу слева
     HStack {
