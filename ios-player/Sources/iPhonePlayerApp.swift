@@ -23,6 +23,9 @@ struct ContentView: View {
     @State private var libraryFiles: [URL] = []
     @State private var currentScreenIsLibrary = false
     @State private var errorMessage = ""
+    @State private var showingCreateFolder = false
+    @State private var newFolderName = ""
+    @State private var folders: [String] = []
 
     private let timer = Timer.publish(
         every: 0.5,
@@ -271,34 +274,90 @@ HStack(spacing: 12) {
     }
 }
 
-    private var libraryView: some View {
-        VStack(spacing: 16) {
-            Text("Библиотека")
-                .font(.largeTitle)
-                .bold()
+private var libraryView: some View {
+    VStack(spacing: 16) {
+        Text("Библиотека")
+            .font(.largeTitle)
+            .bold()
 
-            if libraryFiles.isEmpty {
-                Text("Аудиокниг пока нет")
-                    .foregroundStyle(.white.opacity(0.7))
-            } else {
-                List {
-                    ForEach(libraryFiles, id: \.self) { file in
-                        Button {
-                            loadAudio(.success([file]))
-                            currentScreenIsLibrary = false
-                        } label: {
-                            Text(file.deletingPathExtension().lastPathComponent)
-                                .foregroundStyle(.white)
-                        }
-                        .listRowBackground(Color.white.opacity(0.08))
+        if libraryFiles.isEmpty && folders.isEmpty {
+            Text("Аудиокниг пока нет")
+                .foregroundStyle(.white.opacity(0.7))
+        } else {
+            List {
+                ForEach(folders, id: \.self) { folder in
+                    HStack(spacing: 12) {
+                        Image(systemName: "folder.fill")
+                            .foregroundStyle(
+                                Color(red: 0.85, green: 0.76, blue: 0.48)
+                            )
+
+                        Text(folder)
+                            .foregroundStyle(.white)
                     }
+                    .listRowBackground(Color.white.opacity(0.08))
                 }
-                .scrollContentBackground(.hidden)
-            }
 
-            Spacer(minLength: 0)
+                ForEach(libraryFiles, id: \.self) { file in
+                    Button {
+                        loadAudio(.success([file]))
+                        currentScreenIsLibrary = false
+                    } label: {
+                        Text(file.deletingPathExtension().lastPathComponent)
+                            .foregroundStyle(.white)
+                    }
+                    .listRowBackground(Color.white.opacity(0.08))
+                }
+            }
+            .scrollContentBackground(.hidden)
         }
+
+        Spacer(minLength: 0)
     }
+    .safeAreaInset(edge: .bottom, spacing: 0) {
+        HStack {
+            Button {
+                newFolderName = ""
+                showingCreateFolder = true
+            } label: {
+                Image(systemName: "folder.badge.plus")
+                    .font(.system(size: 16, weight: .medium))
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 10)
+                    .overlay {
+                        Capsule()
+                            .stroke(
+                                Color.white.opacity(0.8),
+                                lineWidth: 1
+                            )
+                    }
+            }
+            .buttonStyle(.plain)
+
+            Spacer()
+        }
+        .padding(.horizontal, 24)
+        .padding(.top, 8)
+        .padding(.bottom, 4)
+    }
+    .alert("Новая папка", isPresented: $showingCreateFolder) {
+        TextField("Название папки", text: $newFolderName)
+
+        Button("Отмена", role: .cancel) {
+            newFolderName = ""
+        }
+
+        Button("ОК") {
+            createFolder()
+        }
+    } message: {
+        Text("Введите название папки")
+    }
+    .onAppear {
+        loadFolders()
+    }
+}
 
     private func seekButton(seconds: Double, symbol: String) -> some View {
         Button {
@@ -310,6 +369,40 @@ HStack(spacing: 12) {
         .disabled(player == nil)
     }
 
+    private func loadFolders() {
+    folders = UserDefaults.standard.stringArray(
+        forKey: "playbook.libraryFolders"
+    ) ?? []
+}
+
+private func createFolder() {
+    let name = newFolderName.trimmingCharacters(
+        in: .whitespacesAndNewlines
+    )
+
+    guard !name.isEmpty else {
+        newFolderName = ""
+        return
+    }
+
+    let alreadyExists = folders.contains {
+        $0.localizedCaseInsensitiveCompare(name) == .orderedSame
+    }
+
+    guard !alreadyExists else {
+        newFolderName = ""
+        return
+    }
+
+    folders.append(name)
+
+    UserDefaults.standard.set(
+        folders,
+        forKey: "playbook.libraryFolders"
+    )
+
+    newFolderName = ""
+}
     private func loadAudio(_ result: Result<[URL], Error>) {
         do {
             guard let sourceURL = try result.get().first else { return }
