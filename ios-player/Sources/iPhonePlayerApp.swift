@@ -170,7 +170,7 @@ struct ContentView: View {
 
             Spacer(minLength: 22)
 
-            Spacer(minLength: 0)
+            Spacer(minLength: 80)
 
 HStack(spacing: 35) {
     seekButton(seconds: -15, symbol: "gobackward.15")
@@ -190,7 +190,6 @@ HStack(spacing: 35) {
     seekButton(seconds: 15, symbol: "goforward.15")
 }
 .buttonStyle(.plain)
-.padding(.top, 35)
 .frame(maxWidth: .infinity)
 
 Spacer(minLength: 0)
