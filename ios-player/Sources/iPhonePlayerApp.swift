@@ -26,6 +26,7 @@ struct ContentView: View {
     @State private var showingCreateFolder = false
     @State private var newFolderName = ""
     @State private var folders: [String] = []
+    @State private var selectedFolder: String? = nil
     @State private var fileFolders: [String: String] = [:]
 
     private let timer = Timer.publish(
@@ -286,21 +287,52 @@ HStack(spacing: 12) {
                 .foregroundStyle(.white.opacity(0.7))
         } else {
             List {
-                ForEach(folders, id: \.self) { folder in
-                    HStack(spacing: 12) {
-                        Image(systemName: "folder.fill")
-                            .foregroundStyle(
-                                Color(red: 0.85, green: 0.76, blue: 0.48)
-                            )
+if let selectedFolder {
+    Button {
+        self.selectedFolder = nil
+    } label: {
+        Label("Назад к библиотеке", systemImage: "chevron.left")
+            .foregroundStyle(.white)
+            .frame(maxWidth: .infinity, alignment: .leading)
+    }
+    .buttonStyle(.plain)
+    .listRowBackground(Color.white.opacity(0.08))
 
-                        Text(folder)
-                            .foregroundStyle(.white)
-                    }
-                    .listRowBackground(Color.white.opacity(0.08))
-                }
+    Text(selectedFolder)
+        .font(.headline)
+        .foregroundStyle(.white)
+        .listRowBackground(Color.white.opacity(0.08))
+
+} else {
+    ForEach(folders, id: \.self) { folder in
+        Button {
+            selectedFolder = folder
+        } label: {
+            HStack(spacing: 12) {
+                Image(systemName: "folder.fill")
+                    .foregroundStyle(
+                        Color(red: 0.85, green: 0.76, blue: 0.48)
+                    )
+                Text(folder)
+                    .foregroundStyle(.white)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .listRowBackground(Color.white.opacity(0.08))
+    }
+}
+
+
 
                 
-                ForEach(libraryFiles, id: \.self) { file in
+                ForEach(
+    libraryFiles.filter { file in
+        fileFolders[file.lastPathComponent] == selectedFolder
+    },
+    id: \.self
+) { file in
                     Button {
                         loadAudio(.success([file]))
                         currentScreenIsLibrary = false
@@ -406,7 +438,12 @@ HStack(spacing: 12) {
     folders = UserDefaults.standard.stringArray(
         forKey: "playbook.libraryFolders"
     ) ?? []
+
+    fileFolders = UserDefaults.standard.dictionary(
+        forKey: "playbook.fileFolders"
+    ) as? [String: String] ?? [:]
 }
+
 
 private func createFolder() {
     let name = newFolderName.trimmingCharacters(
