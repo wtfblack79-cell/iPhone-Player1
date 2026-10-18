@@ -28,6 +28,7 @@ struct ContentView: View {
     @State private var folders: [String] = []
     @State private var selectedFolder: String? = nil
     @State private var fileFolders: [String: String] = [:]
+    @State private var didAttemptRestore = false
 
     private let timer = Timer.publish(
         every: 0.5,
@@ -51,11 +52,27 @@ struct ContentView: View {
             }
         }
         .foregroundStyle(.white)
-        .onReceive(timer) { _ in
-            guard let player else { return }
-            progress = player.currentTime
-            isPlaying = player.isPlaying
-        }
+        .onAppear {
+
+    restoreLastAudio()
+
+}
+.onReceive(timer) { _ in
+    guard let player else { return }
+
+    progress = player.currentTime
+    isPlaying = player.isPlaying
+
+    UserDefaults.standard.set(
+        player.currentTime,
+        forKey: "playbook.lastPosition"
+    )
+
+    UserDefaults.standard.set(
+        player.url?.lastPathComponent ?? "",
+        forKey: "playbook.lastFileName"
+    )
+}
         .fileImporter(
             isPresented: $showingImporter,
             allowedContentTypes: [.audio, .mp3, .mpeg4Audio],
@@ -540,7 +557,46 @@ private func loadAudio(_ result: Result<[URL], Error>) {
             errorMessage = "Не удалось открыть файл: \(error.localizedDescription)"
         }
     }
+    
+    private func restoreLastAudio() {
+    guard !didAttemptRestore else { return }
+    didAttemptRestore = true
 
+    let savedFileName = UserDefaults.standard.string(
+        forKey: "playbook.lastFileName"
+    ) ?? ""
+
+    guard !savedFileName.isEmpty else { return }
+
+    let savedPosition = UserDefaults.standard.double(
+        forKey: "playbook.lastPosition"
+    )
+
+    let documentsURL = FileManager.default.urls(
+        for: .documentDirectory,
+        in: .userDomainMask
+    )[0]
+
+    let savedURL = documentsURL.appendingPathComponent(savedFileName)
+
+    guard FileManager.default.fileExists(atPath: savedURL.path) else {
+        return
+    }
+
+    loadAudio(.success([savedURL]))
+
+    guard let player else { return }
+
+    player.currentTime = max(
+        0,
+        min(savedPosition - 2, player.duration)
+    )
+
+    progress = player.currentTime
+    isPlaying = false
+    player.pause()
+}
+    
     private func togglePlayback() {
         guard let player else { return }
 
