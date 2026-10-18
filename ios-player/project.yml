@@ -55,6 +55,7 @@ targets:
         SWIFT_VERSION: "5.0"
         CODE_SIGN_ENTITLEMENTS: Sources/PlayBookShare/PlayBookShare.entitlements
     info:
+      path: PlayBookShare-Info.plist
       properties:
         CFBundleDisplayName: PlayBook
         NSExtension:
