@@ -21,3 +21,13 @@ targets:
         UILaunchScreen: {}
         UIBackgroundModes:
           - audio
+        CFBundleDocumentTypes:
+          - CFBundleTypeName: Audio File
+            LSHandlerRank: Owner
+            LSItemContentTypes:
+              - public.audio
+              - public.mp3
+              - public.mpeg-4-audio
+              - com.apple.m4a-audio
+              - com.microsoft.waveform-audio
+              - public.aiff-audio
