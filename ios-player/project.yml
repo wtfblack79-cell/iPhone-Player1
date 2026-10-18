@@ -30,12 +30,13 @@ targets:
         UILaunchScreen: {}
         UIBackgroundModes:
           - audio
+        LSSupportsOpeningDocumentsInPlace: false
         CFBundleURLTypes:
           - CFBundleURLName: com.personal.iphoneplayer
             CFBundleURLSchemes:
               - playbook
         CFBundleDocumentTypes:
-          - CFBundleTypeName: Audio File
+          - CFBundleTypeName: Аудиокнига
             CFBundleTypeRole: Viewer
             LSHandlerRank: Owner
             LSItemContentTypes:
@@ -43,8 +44,12 @@ targets:
               - public.mp3
               - public.mpeg-4-audio
               - com.apple.m4a-audio
+              - com.apple.m4b-audio
+              - public.aac-audio
               - com.microsoft.waveform-audio
               - public.aiff-audio
+              - com.apple.coreaudio-format
+              - org.xiph.flac
 
   PlayBookShare:
     type: app-extension
@@ -75,7 +80,11 @@ targets:
                   ANY $attachment.registeredTypeIdentifiers UTI-CONFORMS-TO "public.mp3" ||
                   ANY $attachment.registeredTypeIdentifiers UTI-CONFORMS-TO "public.mpeg-4-audio" ||
                   ANY $attachment.registeredTypeIdentifiers UTI-CONFORMS-TO "com.apple.m4a-audio" ||
+                  ANY $attachment.registeredTypeIdentifiers UTI-CONFORMS-TO "com.apple.m4b-audio" ||
+                  ANY $attachment.registeredTypeIdentifiers UTI-CONFORMS-TO "public.aac-audio" ||
                   ANY $attachment.registeredTypeIdentifiers UTI-CONFORMS-TO "com.microsoft.waveform-audio" ||
-                  ANY $attachment.registeredTypeIdentifiers UTI-CONFORMS-TO "public.aiff-audio"
+                  ANY $attachment.registeredTypeIdentifiers UTI-CONFORMS-TO "public.aiff-audio" ||
+                  ANY $attachment.registeredTypeIdentifiers UTI-CONFORMS-TO "com.apple.coreaudio-format" ||
+                  ANY $attachment.registeredTypeIdentifiers UTI-CONFORMS-TO "org.xiph.flac"
                 ).@count > 0
               ).@count > 0
