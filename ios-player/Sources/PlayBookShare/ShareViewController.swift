@@ -1,7 +1,19 @@
 import UIKit
-import UniformTypeIdentifiers
 
 class ShareViewController: UIViewController {
+
+    private let audioTypes = [
+        "public.audio",
+        "public.mp3",
+        "public.mpeg-4-audio",
+        "com.apple.m4a-audio",
+        "com.apple.m4b-audio",
+        "public.aac-audio",
+        "com.microsoft.waveform-audio",
+        "public.aiff-audio",
+        "com.apple.coreaudio-format",
+        "org.xiph.flac"
+    ]
 
     override func viewDidLoad() {
         super.viewDidLoad()
@@ -9,99 +21,65 @@ class ShareViewController: UIViewController {
     }
 
     private func handleSharedItems() {
-        guard let extensionItem = extensionContext?.inputItems.first as? NSExtensionItem,
-              let attachments = extensionItem.attachments else {
-            completeRequest()
+        guard let items = extensionContext?.inputItems as? [NSExtensionItem] else {
+            finish()
             return
         }
 
-        let audioTypes = [
-            "public.audio",
-            "public.mp3",
-            "public.mpeg-4-audio",
-            "com.apple.m4a-audio",
-            "com.microsoft.waveform-audio",
-            "public.aiff-audio"
-        ]
-
-        for attachment in attachments {
-            for type in audioTypes {
-                if attachment.hasItemConformingToTypeIdentifier(type) {
-                    attachment.loadItem(forTypeIdentifier: type, options: nil) { [weak self] (item, error) in
-                        self?.processItem(item)
+        for item in items {
+            guard let attachments = item.attachments else { continue }
+            for attachment in attachments {
+                for type in audioTypes where attachment.hasItemConformingToTypeIdentifier(type) {
+                    attachment.loadItem(forTypeIdentifier: type, options: nil) { [weak self] object, _ in
+                        DispatchQueue.main.async {
+                            self?.processItem(object, suggestedName: attachment.suggestedName ?? "")
+                        }
                     }
                     return
                 }
             }
         }
-
-        completeRequest()
+        finish()
     }
 
-    private func processItem(_ item: Any?) {
-        var fileURL: URL?
+    private func processItem(_ item: Any?, suggestedName: String) {
+        var sourceURL: URL?
 
         if let url = item as? URL {
-            fileURL = url
+            sourceURL = url
         } else if let data = item as? Data {
+            let name = suggestedName as NSString
+            let ext = name.pathExtension.isEmpty ? "mp3" : name.pathExtension
             let tempURL = FileManager.default.temporaryDirectory
-                .appendingPathComponent(UUID().uuidString + ".mp3")
-            try? data.write(to: tempURL)
-            fileURL = tempURL
+                .appendingPathComponent(UUID().uuidString)
+                .appendingPathExtension(ext)
+            do {
+                try data.write(to: tempURL)
+                sourceURL = tempURL
+            } catch {
+                finish()
+                return
+            }
         }
 
-        guard let sourceURL = fileURL else {
-            completeRequest()
+        guard let source = sourceURL else {
+            finish()
             return
         }
 
-        // Копируем файл в общую папку
         guard let containerURL = FileManager.default.containerURL(
             forSecurityApplicationGroupIdentifier: "group.com.personal.iphoneplayer"
         ) else {
-            completeRequest()
+            finish()
             return
         }
 
         let sharedFolder = containerURL.appendingPathComponent("SharedAudio", isDirectory: true)
         try? FileManager.default.createDirectory(at: sharedFolder, withIntermediateDirectories: true)
 
-        let destinationURL = sharedFolder.appendingPathComponent(sourceURL.lastPathComponent)
-
-        do {
-            if FileManager.default.fileExists(atPath: destinationURL.path) {
-                try FileManager.default.removeItem(at: destinationURL)
-            }
-            try FileManager.default.copyItem(at: sourceURL, to: destinationURL)
-
-            // Запоминаем путь
-            UserDefaults(suiteName: "group.com.personal.iphoneplayer")?
-                .set(destinationURL.path, forKey: "lastSharedAudioPath")
-
-            openMainApp()
-        } catch {
-            completeRequest()
-        }
-    }
-
-    private func openMainApp() {
-        let url = URL(string: "playbook://shared")!
-
-        var responder: UIResponder? = self
-        while let r = responder {
-            if let application = r as? UIApplication {
-                application.open(url, options: [:], completionHandler: nil)
-                break
-            }
-            responder = r.next
-        }
-
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
-            self.completeRequest()
-        }
-    }
-
-    private func completeRequest() {
-        extensionContext?.completeRequest(returningItems: nil, completionHandler: nil)
-    }
-}
+        var destination = sharedFolder.appendingPathComponent(source.lastPathComponent)
+        var counter = 1
+        let baseName = destination.deletingPathExtension().lastPathComponent
+        let fileExt = destination.pathExtension
+        while FileManager.default.fileExists(atPath: destination.path) {
+            destination = sharedFolder.appendingPathComponent("
