@@ -1,4 +1,3 @@
-
 name: iPhonePlayer
 
 options:
@@ -14,8 +13,6 @@ targets:
         excludes:
           - PlayBookShare
           - PlayBookShare/**
-          - PlayBook.entitlements
-      - path: Assets.xcassets
     dependencies:
       - target: PlayBookShare
         embed: true
@@ -32,6 +29,10 @@ targets:
         UILaunchScreen: {}
         UIBackgroundModes:
           - audio
+        CFBundleURLTypes:
+          - CFBundleURLName: com.personal.iphoneplayer
+            CFBundleURLSchemes:
+              - playbook
         CFBundleDocumentTypes:
           - CFBundleTypeName: Audio File
             CFBundleTypeRole: Viewer
@@ -55,11 +56,25 @@ targets:
         SWIFT_VERSION: "5.0"
         CODE_SIGN_ENTITLEMENTS: Sources/PlayBookShare/PlayBookShare.entitlements
     info:
-      path: PlayBookShare-Info.plist
+      path: Sources/PlayBookShare/PlayBookShare-Info.plist
       properties:
         CFBundleDisplayName: PlayBook
         NSExtension:
           NSExtensionPointIdentifier: com.apple.share-services
           NSExtensionPrincipalClass: $(PRODUCT_MODULE_NAME).ShareViewController
           NSExtensionAttributes:
-            NSExtensionActivationRule: TRUEPREDICATE
+            NSExtensionActivationRule: |
+              SUBQUERY (
+                extensionItems,
+                $extensionItem,
+                SUBQUERY (
+                  $extensionItem.attachments,
+                  $attachment,
+                  ANY $attachment.registeredTypeIdentifiers UTI-CONFORMS-TO "public.audio" ||
+                  ANY $attachment.registeredTypeIdentifiers UTI-CONFORMS-TO "public.mp3" ||
+                  ANY $attachment.registeredTypeIdentifiers UTI-CONFORMS-TO "public.mpeg-4-audio" ||
+                  ANY $attachment.registeredTypeIdentifiers UTI-CONFORMS-TO "com.apple.m4a-audio" ||
+                  ANY $attachment.registeredTypeIdentifiers UTI-CONFORMS-TO "com.microsoft.waveform-audio" ||
+                  ANY $attachment.registeredTypeIdentifiers UTI-CONFORMS-TO "public.aiff-audio"
+                ).@count > 0
+              ).@count > 0
