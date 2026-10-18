@@ -22,8 +22,9 @@ targets:
         UIBackgroundModes:
           - audio
         CFBundleDocumentTypes:
-          - CFBundleTypeName: Audio File
-            LSHandlerRank: Owner
+CFBundleTypeName: Audio File
+CFBundleTypeRole: Viewer
+LSHandlerRank: Owner
             LSItemContentTypes:
               - public.audio
               - public.mp3
