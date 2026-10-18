@@ -15,9 +15,18 @@ class ShareViewController: UIViewController {
         "org.xiph.flac"
     ]
 
+    private var didProcess = false
+
     override func viewDidLoad() {
         super.viewDidLoad()
         handleSharedItems()
+
+        // Страховка: если файл так и не пришёл за 30 секунд — закрываем шторку,
+        // чтобы Диск не висел вечно.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 30) { [weak self] in
+            guard let self = self, !self.didProcess else { return }
+            self.finish()
+        }
     }
 
     private func handleSharedItems() {
@@ -29,20 +38,31 @@ class ShareViewController: UIViewController {
         for item in items {
             guard let attachments = item.attachments else { continue }
             for attachment in attachments {
-                for type in audioTypes where attachment.hasItemConformingToTypeIdentifier(type) {
-                    attachment.loadItem(forTypeIdentifier: type, options: nil) { [weak self] object, _ in
-                        DispatchQueue.main.async {
-                            self?.processItem(object, suggestedName: attachment.suggestedName ?? "")
+                if let type = audioTypes.first(where: {
+                    attachment.hasItemConformingToTypeIdentifier($0)
+                }) {
+                    attachment.loadItem(forTypeIdentifier: type, options: nil) {
+                        [weak self] object, _ in
+                        guard let self = self else { return }
+                        DispatchQueue.global(qos: .userInitiated).async {
+                            self.processItem(object,
+                                             suggestedName: attachment.suggestedName ?? "")
                         }
                     }
+                    // ВАЖНО: здесь больше НЕТ finish() —
+                    // закрываем шторку только после сохранения файла.
                     return
                 }
             }
         }
+
+        // Сюда попадаем, только если среди вложений нет ни одного аудиофайла
         finish()
     }
 
     private func processItem(_ item: Any?, suggestedName: String) {
+        didProcess = true
+
         var sourceURL: URL?
 
         if let url = item as? URL {
@@ -57,28 +77,32 @@ class ShareViewController: UIViewController {
                 try data.write(to: tempURL)
                 sourceURL = tempURL
             } catch {
-                finish()
+                DispatchQueue.main.async { self.finish() }
                 return
             }
         }
 
         guard let source = sourceURL else {
-            finish()
+            DispatchQueue.main.async { self.finish() }
             return
         }
 
         guard let containerURL = FileManager.default.containerURL(
             forSecurityApplicationGroupIdentifier: "group.com.personal.iphoneplayer"
         ) else {
-            finish()
+            DispatchQueue.main.async { self.finish() }
             return
         }
 
         let sharedFolder = containerURL.appendingPathComponent("SharedAudio", isDirectory: true)
-        try? FileManager.default.createDirectory(at: sharedFolder, withIntermediateDirectories: true)
+        try? FileManager.default.createDirectory(at: sharedFolder,
+                                                 withIntermediateDirectories: true)
 
         var counter = 1
         var targetName = source.lastPathComponent
+        if targetName.isEmpty {
+            targetName = "audiobook.mp3"
+        }
         let baseName = (targetName as NSString).deletingPathExtension
         let fileExt = (targetName as NSString).pathExtension
 
@@ -96,19 +120,18 @@ class ShareViewController: UIViewController {
             UserDefaults(suiteName: "group.com.personal.iphoneplayer")?
                 .set(destination.path, forKey: "lastSharedAudioPath")
         } catch {
-            finish()
+            DispatchQueue.main.async { self.finish() }
             return
         }
 
-        openMainApp()
+        DispatchQueue.main.async {
+            self.tryOpenMainApp()
+            self.finish()
+        }
     }
 
-    private func openMainApp() {
-        guard let url = URL(string: "playbook://shared") else {
-            finish()
-            return
-        }
-
+    private func tryOpenMainApp() {
+        guard let url = URL(string: "playbook://shared") else { return }
         let selectorOpenURL = sel_registerName("openURL:")
         var responder: UIResponder? = self
         while let current = responder {
@@ -118,11 +141,10 @@ class ShareViewController: UIViewController {
             }
             responder = current.next
         }
-
-        finish()
     }
 
     private func finish() {
+        didProcess = true
         extensionContext?.completeRequest(returningItems: nil, completionHandler: nil)
     }
 }
