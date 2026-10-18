@@ -57,6 +57,9 @@ struct ContentView: View {
     restoreLastAudio()
 
 }
+        .onOpenURL { url in
+            importIncomingAudio(url)
+}
 .onReceive(timer) { _ in
     guard let player else { return }
 
@@ -555,6 +558,63 @@ private func loadAudio(_ result: Result<[URL], Error>) {
             refreshLibrary()
         } catch {
             errorMessage = "Не удалось открыть файл: \(error.localizedDescription)"
+        }
+    }
+    
+    private func importIncomingAudio(_ url: URL) {
+        let didAccess = url.startAccessingSecurityScopedResource()
+        defer {
+            if didAccess {
+                url.stopAccessingSecurityScopedResource()
+            }
+        }
+
+        let allowedExtensions: Set<String> = [
+            "mp3", "m4a", "m4b", "aac",
+            "wav", "aiff", "caf", "flac"
+        ]
+
+        guard allowedExtensions.contains(url.pathExtension.lowercased()) else {
+            errorMessage = "Этот формат аудио не поддерживается."
+            return
+        }
+
+        do {
+            let documentsURL = FileManager.default.urls(
+                for: .documentDirectory,
+                in: .userDomainMask
+            )[0]
+
+            let sourceURL = url.standardizedFileURL
+            var destinationURL = documentsURL.appendingPathComponent(
+                url.lastPathComponent
+            )
+
+            if sourceURL != destinationURL.standardizedFileURL {
+                let baseName = url.deletingPathExtension().lastPathComponent
+                let fileExtension = url.pathExtension
+                var number = 2
+
+                while FileManager.default.fileExists(
+                    atPath: destinationURL.path
+                ) {
+                    destinationURL = documentsURL.appendingPathComponent(
+                        "\(baseName) (\(number)).\(fileExtension)"
+                    )
+                    number += 1
+                }
+
+                try FileManager.default.copyItem(
+                    at: url,
+                    to: destinationURL
+                )
+            }
+
+            refreshLibrary()
+            currentScreenIsLibrary = true
+            errorMessage = ""
+        } catch {
+            errorMessage = "Не удалось добавить аудио: \(error.localizedDescription)"
         }
     }
     
