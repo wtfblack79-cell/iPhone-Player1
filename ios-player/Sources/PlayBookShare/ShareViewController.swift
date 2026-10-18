@@ -48,11 +48,11 @@ class ShareViewController: UIViewController {
         if let url = item as? URL {
             sourceURL = url
         } else if let data = item as? Data {
-            let name = suggestedName as NSString
-            let ext = name.pathExtension.isEmpty ? "mp3" : name.pathExtension
+            let ext = (suggestedName as NSString).pathExtension
+            let realExt = ext.isEmpty ? "mp3" : ext
             let tempURL = FileManager.default.temporaryDirectory
                 .appendingPathComponent(UUID().uuidString)
-                .appendingPathExtension(ext)
+                .appendingPathExtension(realExt)
             do {
                 try data.write(to: tempURL)
                 sourceURL = tempURL
@@ -77,9 +77,52 @@ class ShareViewController: UIViewController {
         let sharedFolder = containerURL.appendingPathComponent("SharedAudio", isDirectory: true)
         try? FileManager.default.createDirectory(at: sharedFolder, withIntermediateDirectories: true)
 
-        var destination = sharedFolder.appendingPathComponent(source.lastPathComponent)
         var counter = 1
-        let baseName = destination.deletingPathExtension().lastPathComponent
-        let fileExt = destination.pathExtension
-        while FileManager.default.fileExists(atPath: destination.path) {
-            destination = sharedFolder.appendingPathComponent("
+        var targetName = source.lastPathComponent
+        let baseName = (targetName as NSString).deletingPathExtension
+        let fileExt = (targetName as NSString).pathExtension
+
+        while FileManager.default.fileExists(
+            atPath: sharedFolder.appendingPathComponent(targetName).path
+        ) {
+            targetName = baseName + " (" + String(counter) + ")." + fileExt
+            counter += 1
+        }
+
+        let destination = sharedFolder.appendingPathComponent(targetName)
+
+        do {
+            try FileManager.default.copyItem(at: source, to: destination)
+            UserDefaults(suiteName: "group.com.personal.iphoneplayer")?
+                .set(destination.path, forKey: "lastSharedAudioPath")
+        } catch {
+            finish()
+            return
+        }
+
+        openMainApp()
+    }
+
+    private func openMainApp() {
+        guard let url = URL(string: "playbook://shared") else {
+            finish()
+            return
+        }
+
+        let selectorOpenURL = sel_registerName("openURL:")
+        var responder: UIResponder? = self
+        while let current = responder {
+            if current.responds(to: selectorOpenURL), current !== self {
+                current.perform(selectorOpenURL, with: url)
+                break
+            }
+            responder = current.next
+        }
+
+        finish()
+    }
+
+    private func finish() {
+        extensionContext?.completeRequest(returningItems: nil, completionHandler: nil)
+    }
+}
