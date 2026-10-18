@@ -70,17 +70,24 @@ struct ContentView: View {
         }
         .foregroundStyle(.white)
 .onAppear {
-    // Сначала проверяем, пришёл ли файл через "Поделиться"
-    if let path = UserDefaults.standard.string(forKey: "pendingAudioPath") {
-        let fileURL = URL(fileURLWithPath: path)
-        openSharedAudio(fileURL)
-        UserDefaults.standard.removeObject(forKey: "pendingAudioPath")
+    let sharedDefaults = UserDefaults(suiteName: "group.com.personal.iphoneplayer")
+    if let path = sharedDefaults?.string(forKey: "lastSharedAudioPath") {
+        openSharedAudio(URL(fileURLWithPath: path))
+        sharedDefaults?.removeObject(forKey: "lastSharedAudioPath")
     } else {
         restoreLastAudio()
     }
 }
-        .onOpenURL { url in
-            importIncomingAudio(url)
+.onOpenURL { url in
+    if url.scheme == "playbook" {
+        let sharedDefaults = UserDefaults(suiteName: "group.com.personal.iphoneplayer")
+        if let path = sharedDefaults?.string(forKey: "lastSharedAudioPath") {
+            openSharedAudio(URL(fileURLWithPath: path))
+            sharedDefaults?.removeObject(forKey: "lastSharedAudioPath")
+        }
+    } else {
+        importIncomingAudio(url)
+    }
 }
 .onReceive(timer) { _ in
     guard let player else { return }
