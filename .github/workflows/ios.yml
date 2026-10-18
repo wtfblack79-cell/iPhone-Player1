@@ -33,6 +33,16 @@ jobs:
             CODE_SIGNING_ALLOWED=NO \
             build
 
+      - name: Check app icon
+        run: |
+          APP="ios-player/build/Build/Products/Release-iphoneos/iPhonePlayer.app"
+          echo "=== App icon settings ==="
+          /usr/libexec/PlistBuddy -c "Print :CFBundleIcons" "$APP/Info.plist" || true
+          echo "=== AppIcon in compiled assets ==="
+          xcrun --sdk iphoneos assetutil --info "$APP/Assets.car" | grep -i -A 8 -B 4 'AppIcon' || true
+          echo "=== Assets.car file ==="
+          ls -lh "$APP/Assets.car"
+
       - name: Package IPA
         working-directory: ios-player
         run: |
