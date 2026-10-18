@@ -69,10 +69,15 @@ struct ContentView: View {
             }
         }
         .foregroundStyle(.white)
-        .onAppear {
-
-    restoreLastAudio()
-
+.onAppear {
+    // Сначала проверяем, пришёл ли файл через "Поделиться"
+    if let path = UserDefaults.standard.string(forKey: "pendingAudioPath") {
+        let fileURL = URL(fileURLWithPath: path)
+        openSharedAudio(fileURL)
+        UserDefaults.standard.removeObject(forKey: "pendingAudioPath")
+    } else {
+        restoreLastAudio()
+    }
 }
         .onOpenURL { url in
             importIncomingAudio(url)
