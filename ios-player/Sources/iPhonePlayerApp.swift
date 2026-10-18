@@ -8,6 +8,23 @@ struct iPhonePlayerApp: App {
     var body: some Scene {
         WindowGroup {
             ContentView()
+                .onOpenURL { url in
+                    handleIncomingURL(url)
+                }
+        }
+    }
+
+    private func handleIncomingURL(_ url: URL) {
+        guard url.scheme == "playbook" else { return }
+
+        if let path = UserDefaults(suiteName: "group.com.personal.iphoneplayer")?
+            .string(forKey: "lastSharedAudioPath") {
+            
+            let fileURL = URL(fileURLWithPath: path)
+            print("Получен аудиофайл:", fileURL.path)
+            
+            // Сохраняем путь, чтобы ContentView мог его подхватить
+            UserDefaults.standard.set(path, forKey: "pendingAudioPath")
         }
     }
 }
