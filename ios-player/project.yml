@@ -13,6 +13,7 @@ targets:
         excludes:
           - PlayBookShare
           - PlayBookShare/**
+      - path: Assets.xcassets
     dependencies:
       - target: PlayBookShare
         embed: true
