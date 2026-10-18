@@ -1,14 +1,22 @@
+
 name: iPhonePlayer
+
 options:
   deploymentTarget:
     iOS: "16.0"
+
 targets:
   iPhonePlayer:
     type: application
     platform: iOS
     sources:
       - path: Sources
+        excludes:
+          - PlayBookShare/**
       - path: Assets.xcassets
+    dependencies:
+      - target: PlayBookShare
+        embed: true
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.personal.iphoneplayer
@@ -32,3 +40,21 @@ targets:
               - com.apple.m4a-audio
               - com.microsoft.waveform-audio
               - public.aiff-audio
+
+  PlayBookShare:
+    type: app-extension
+    platform: iOS
+    sources:
+      - path: Sources/PlayBookShare
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.personal.iphoneplayer.PlayBookShare
+        SWIFT_VERSION: "5.0"
+    info:
+      properties:
+        CFBundleDisplayName: PlayBook
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.share-services
+          NSExtensionPrincipalClass: $(PRODUCT_MODULE_NAME).ShareViewController
+          NSExtensionAttributes:
+            NSExtensionActivationRule: TRUEPREDICATE
