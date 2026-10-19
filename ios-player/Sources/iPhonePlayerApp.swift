@@ -81,16 +81,19 @@ struct ContentView: View {
     }
 }
 .onOpenURL { url in
-    if url.scheme == "playbook" {
-        let sharedDefaults = UserDefaults(suiteName: "group.com.personal.iphoneplayer")
-        if let path = sharedDefaults?.string(forKey: "lastSharedAudioPath") {
-            openSharedAudio(URL(fileURLWithPath: path))
-            sharedDefaults?.removeObject(forKey: "lastSharedAudioPath")
+    DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+        if url.scheme == "playbook" {
+            let sharedDefaults = UserDefaults(suiteName: "group.com.personal.iphoneplayer")
+            if let path = sharedDefaults?.string(forKey: "lastSharedAudioPath") {
+                openSharedAudio(URL(fileURLWithPath: path))
+                sharedDefaults?.removeObject(forKey: "lastSharedAudioPath")
+            }
+        } else {
+            importIncomingAudio(url)
         }
-    } else {
-        importIncomingAudio(url)
     }
 }
+
 .onReceive(timer) { _ in
     guard let player else { return }
 
