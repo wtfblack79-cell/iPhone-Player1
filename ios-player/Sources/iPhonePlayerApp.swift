@@ -1,6 +1,7 @@
 import SwiftUI
 import AVFoundation
 import UniformTypeIdentifiers
+import UIKit
 
 @main
 struct iPhonePlayerApp: App {
@@ -50,14 +51,13 @@ struct ContentView: View {
     @State private var sleepTimerStartedAt: Date?        // когда запустили
     @State private var sleepTimerExpired = false         // сработал ли уже
     @State private var sleepTimerStartedPosition: Double = 0 // позиция книги при старте таймера
-
     @State private var isSeeking = false                 // пользователь держит ползунок
 
-    // Фон: выбор картинки для главного экрана и библиотеки
+    // Фоны
+    @State private var homeBackground: UIImage?
+    @State private var libraryBackground: UIImage?
     @State private var showingBackgroundImporter = false
-    @State private var backgroundTarget = 0              // 0 = главный экран, 1 = библиотека
-    @State private var homeBackgroundImage: UIImage? = nil
-    @State private var libraryBackgroundImage: UIImage? = nil
+    @State private var backgroundTarget = "home"         // "home" или "library"
 
     private let timer = Timer.publish(
         every: 0.5,
@@ -80,6 +80,7 @@ struct ContentView: View {
                 playerView
             }
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
         .foregroundStyle(.white)
         .onAppear {
             loadBackgrounds()
@@ -107,11 +108,9 @@ struct ContentView: View {
                 }
             }
         }
-
         .onReceive(timer) { _ in
             guard let player else { return }
 
-            // Пока пользователь держит ползунок — не трогаем позицию
             if !isSeeking {
                 progress = player.currentTime
             }
@@ -124,12 +123,12 @@ struct ContentView: View {
                     player.currentTime,
                     forKey: "playbook.lastPosition"
                 )
-            }
 
-            UserDefaults.standard.set(
-                player.url?.lastPathComponent ?? "",
-                forKey: "playbook.lastFileName"
-            )
+                UserDefaults.standard.set(
+                    player.url?.lastPathComponent ?? "",
+                    forKey: "playbook.lastFileName"
+                )
+            }
         }
         .fileImporter(
             isPresented: $showingImporter,
@@ -143,9 +142,7 @@ struct ContentView: View {
             allowedContentTypes: [.image],
             allowsMultipleSelection: false
         ) { result in
-            if let url = try? result.get().first {
-                loadBackgroundImage(url)
-            }
+            handleBackgroundSelection(result)
         }
         .overlay(alignment: .topTrailing) {
             Menu {
@@ -164,14 +161,14 @@ struct ContentView: View {
 
                 Menu {
                     Button {
-                        backgroundTarget = 0
+                        backgroundTarget = "home"
                         showingBackgroundImporter = true
                     } label: {
                         Label("Главный экран", systemImage: "iphone")
                     }
 
                     Button {
-                        backgroundTarget = 1
+                        backgroundTarget = "library"
                         showingBackgroundImporter = true
                     } label: {
                         Label("Библиотека", systemImage: "books.vertical")
@@ -207,47 +204,57 @@ struct ContentView: View {
         }
     }
 
-    private var currentBackgroundImage: UIImage? {
-        currentScreenIsLibrary ? libraryBackgroundImage : homeBackgroundImage
+    // Фон построен через Color.clear + overlay: overlay никогда не влияет
+    // на раскладку, а clipped обрезает всё, что вылезло за экран.
+    private var background: some View {
+        Color.clear
+            .overlay {
+                if currentScreenIsLibrary {
+                    if let libraryBackground {
+                        Image(uiImage: libraryBackground)
+                            .resizable()
+                            .scaledToFill()
+                    } else {
+                        defaultGradient
+                    }
+                } else {
+                    if let homeBackground {
+                        Image(uiImage: homeBackground)
+                            .resizable()
+                            .scaledToFill()
+                    } else {
+                        defaultGradient
+                    }
+                }
+            }
+            .clipped()
+            .ignoresSafeArea()
     }
 
-    private var background: some View {
+    private var defaultGradient: some View {
         ZStack {
-            if let img = currentBackgroundImage {
-                // Важно: жёстко фиксируем размер картинки рамками экрана,
-                // иначе scaledToFill раздувает ZStack и вёрстка съезжает
-                Image(uiImage: img)
-                    .resizable()
-                    .scaledToFill()
-                    .frame(width: UIScreen.main.bounds.width,
-                           height: UIScreen.main.bounds.height)
-                    .clipped()
-                    .ignoresSafeArea()
-            } else {
-                LinearGradient(
-                    colors: [
-                        Color(red: 0.02, green: 0.04, blue: 0.13),
-                        Color(red: 0.04, green: 0.10, blue: 0.28),
-                        Color(red: 0.12, green: 0.04, blue: 0.24)
-                    ],
-                    startPoint: .topLeading,
-                    endPoint: .bottomTrailing
-                )
+            LinearGradient(
+                colors: [
+                    Color(red: 0.02, green: 0.04, blue: 0.13),
+                    Color(red: 0.04, green: 0.10, blue: 0.28),
+                    Color(red: 0.12, green: 0.04, blue: 0.24)
+                ],
+                startPoint: .topLeading,
+                endPoint: .bottomTrailing
+            )
 
-                Circle()
-                    .fill(Color.cyan.opacity(0.18))
-                    .frame(width: 250, height: 250)
-                    .blur(radius: 80)
-                    .offset(x: -100, y: -180)
+            Circle()
+                .fill(Color.cyan.opacity(0.18))
+                .frame(width: 250, height: 250)
+                .blur(radius: 80)
+                .offset(x: -100, y: -180)
 
-                Circle()
-                    .fill(Color.purple.opacity(0.20))
-                    .frame(width: 250, height: 250)
-                    .blur(radius: 80)
-                    .offset(x: 120, y: 200)
-            }
+            Circle()
+                .fill(Color.purple.opacity(0.20))
+                .frame(width: 250, height: 250)
+                .blur(radius: 80)
+                .offset(x: 120, y: 200)
         }
-        .ignoresSafeArea()
     }
 
     private var playerView: some View {
@@ -280,7 +287,6 @@ struct ContentView: View {
                     SlimSlider(
                         value: $progress,
                         range: 0...max(duration, 1),
-                        isEnabled: player != nil,
                         onEditingChanged: { editing in
                             isSeeking = editing
                             if !editing {
@@ -288,6 +294,7 @@ struct ContentView: View {
                             }
                         }
                     )
+                    .disabled(player == nil)
 
                     HStack {
                         Text(timeString(progress))
@@ -303,9 +310,8 @@ struct ContentView: View {
                             .font(.caption.monospacedDigit())
                             .frame(maxWidth: .infinity, alignment: .trailing)
                     }
-                    .padding(.horizontal, 4)
                 }
-                .padding(.bottom, 20)   // расстояние между полоской и кнопками
+                .padding(.bottom, 20)
 
                 HStack(spacing: 35) {
                     seekButton(seconds: -15, symbol: "gobackward.15")
@@ -650,61 +656,65 @@ struct ContentView: View {
         .disabled(player == nil)
     }
 
-    // MARK: - Фон
-
     private func loadBackgrounds() {
-        homeBackgroundImage = loadStoredBackground("playbook.bg.main")
-        libraryBackgroundImage = loadStoredBackground("playbook.bg.library")
-    }
-
-    private func loadStoredBackground(_ key: String) -> UIImage? {
-        guard let path = UserDefaults.standard.string(forKey: key),
-              FileManager.default.fileExists(atPath: path),
-              let image = UIImage(contentsOfFile: path) else { return nil }
-        return image
-    }
-
-    private func loadBackgroundImage(_ url: URL) {
-        let didAccess = url.startAccessingSecurityScopedResource()
-        defer {
-            if didAccess {
-                url.stopAccessingSecurityScopedResource()
-            }
-        }
-
-        guard let data = try? Data(contentsOf: url),
-              let image = UIImage(data: data) else {
-            errorMessage = "Не удалось загрузить картинку"
-            return
-        }
-
-        setBackgroundImage(image, for: backgroundTarget)
-    }
-
-    private func setBackgroundImage(_ image: UIImage, for target: Int) {
-        let fileName = target == 0 ? "playbook.bg.main.jpg" : "playbook.bg.library.jpg"
-        let key = target == 0 ? "playbook.bg.main" : "playbook.bg.library"
-
         let documents = FileManager.default.urls(
             for: .documentDirectory,
             in: .userDomainMask
         )[0]
 
-        let url = documents.appendingPathComponent(fileName)
-
-        if let data = image.jpegData(compressionQuality: 0.85) {
-            try? data.write(to: url)
-            UserDefaults.standard.set(url.path, forKey: key)
+        if let data = try? Data(contentsOf: documents.appendingPathComponent("playbook.background.home.jpg")),
+           let image = UIImage(data: data) {
+            homeBackground = image
         }
 
-        if target == 0 {
-            homeBackgroundImage = image
-        } else {
-            libraryBackgroundImage = image
+        if let data = try? Data(contentsOf: documents.appendingPathComponent("playbook.background.library.jpg")),
+           let image = UIImage(data: data) {
+            libraryBackground = image
         }
     }
 
-    // MARK: - Библиотека
+    private func handleBackgroundSelection(_ result: Result<[URL], Error>) {
+        do {
+            guard let sourceURL = try result.get().first else { return }
+
+            let accessGranted = sourceURL.startAccessingSecurityScopedResource()
+            defer {
+                if accessGranted {
+                    sourceURL.stopAccessingSecurityScopedResource()
+                }
+            }
+
+            guard let data = try? Data(contentsOf: sourceURL),
+                  let image = UIImage(data: data) else {
+                errorMessage = "Не удалось открыть картинку"
+                return
+            }
+
+            let documents = FileManager.default.urls(
+                for: .documentDirectory,
+                in: .userDomainMask
+            )[0]
+
+            let name = backgroundTarget == "home"
+                ? "playbook.background.home.jpg"
+                : "playbook.background.library.jpg"
+
+            let destination = documents.appendingPathComponent(name)
+
+            try? FileManager.default.removeItem(at: destination)
+            try image.jpegData(compressionQuality: 0.9)?.write(to: destination)
+
+            if backgroundTarget == "home" {
+                homeBackground = image
+            } else {
+                libraryBackground = image
+            }
+
+            errorMessage = ""
+        } catch {
+            errorMessage = "Не удалось сохранить фон: \(error.localizedDescription)"
+        }
+    }
 
     private func loadFolders() {
         folders = UserDefaults.standard.stringArray(
@@ -1061,57 +1071,58 @@ struct ContentView: View {
     }
 }
 
-// Ползунок с маленьким кружком и обычной толщиной линии
+// Ползунок с маленьким кружком: линия обычной толщины, кружок 16 пунктов
 struct SlimSlider: View {
     @Binding var value: Double
     let range: ClosedRange<Double>
-    var isEnabled: Bool = true
     let onEditingChanged: (Bool) -> Void
+
+    @State private var isDragging = false
+
+    private let knobSize: CGFloat = 16
+    private let trackHeight: CGFloat = 5
 
     var body: some View {
         GeometryReader { geo in
             let width = geo.size.width
-            let span = range.upperBound - range.lowerBound
-            let fraction: Double = span > 0
-                ? min(max((value - range.lowerBound) / span, 0), 1)
+            let fraction = range.upperBound > range.lowerBound
+                ? min(max((value - range.lowerBound) / (range.upperBound - range.lowerBound), 0), 1)
                 : 0
-            let knobSize: CGFloat = 16
-            let trackHeight: CGFloat = 6
-            let tint = Color(red: 0.20, green: 0.55, blue: 1.0)
+            let knobX = fraction * max(width - knobSize, 0)
 
             ZStack(alignment: .leading) {
                 Capsule()
-                    .fill(Color.white.opacity(0.25))
+                    .fill(Color.white.opacity(0.3))
                     .frame(height: trackHeight)
 
                 Capsule()
-                    .fill(tint)
-                    .frame(width: max(0, fraction * width), height: trackHeight)
+                    .fill(Color(red: 0.20, green: 0.55, blue: 1.0))
+                    .frame(width: max(0, knobX + knobSize / 2), height: trackHeight)
 
                 Circle()
-                    .fill(tint)
+                    .fill(Color(red: 0.20, green: 0.55, blue: 1.0))
                     .frame(width: knobSize, height: knobSize)
-                    .offset(x: fraction * (width - knobSize))
+                    .offset(x: knobX)
             }
-            .frame(width: width, height: geo.size.height)
+            .frame(height: knobSize)
+            .frame(maxWidth: .infinity)
             .contentShape(Rectangle())
             .gesture(
                 DragGesture(minimumDistance: 0)
                     .onChanged { g in
-                        guard isEnabled, span > 0 else { return }
-                        onEditingChanged(true)
-                        let newFraction = min(max(g.location.x / width, 0), 1)
-                        value = range.lowerBound + newFraction * span
+                        if !isDragging {
+                            isDragging = true
+                            onEditingChanged(true)
+                        }
+                        let f = min(max((g.location.x - knobSize / 2) / max(width - knobSize, 1), 0), 1)
+                        value = range.lowerBound + f * (range.upperBound - range.lowerBound)
                     }
-                    .onEnded { g in
-                        guard isEnabled, span > 0 else { return }
-                        let newFraction = min(max(g.location.x / width, 0), 1)
-                        value = range.lowerBound + newFraction * span
+                    .onEnded { _ in
+                        isDragging = false
                         onEditingChanged(false)
                     }
             )
         }
-        .frame(height: 30)
-        .disabled(!isEnabled)
+        .frame(height: 24)
     }
 }
