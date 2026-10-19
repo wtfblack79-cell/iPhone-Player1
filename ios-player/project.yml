@@ -50,6 +50,10 @@ targets:
               - public.aiff-audio
               - com.apple.coreaudio-format
               - org.xiph.flac
+              - name: Any File
+                content-type: public.data
+                role: Viewer
+
 
   PlayBookShare:
     type: app-extension
