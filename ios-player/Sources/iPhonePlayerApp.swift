@@ -1,4 +1,3 @@
-
 import SwiftUI
 import AVFoundation
 import UniformTypeIdentifiers
@@ -104,8 +103,8 @@ struct ContentView: View {
 
     progress = player.currentTime
     isPlaying = player.isPlaying
-    tickSleepTimer()
 
+    tickSleepTimer()
 
     UserDefaults.standard.set(
         player.currentTime,
@@ -277,8 +276,25 @@ VStack(spacing: 0) {
         .safeAreaInset(edge: .bottom, spacing: 0) {
             VStack(spacing: 6) {
                 if sleepTimerExpired {
-                    Text("Таймер сработал — запущен в 
+                    Text("Таймер сработал — запущен в \(sleepTimerStartedText)")
+                        .font(.footnote)
+                        .foregroundStyle(.white.opacity(0.8))
+                        .transition(.opacity)
+                }
 
+                HStack(spacing: 12) {
+                    speedButton
+                    sleepTimerButton
+                    Spacer()
+                }
+            }
+            .animation(.easeInOut(duration: 0.3), value: sleepTimerExpired)
+            .padding(.horizontal, 24)
+            .padding(.top, 8)
+            .padding(.bottom, 4)
+            .background(.clear)
+        }
+    }
 
     private var speedButton: some View {
         Menu {
@@ -307,24 +323,6 @@ VStack(spacing: 0) {
         .onChange(of: speed) { newSpeed in
             player?.rate = newSpeed
         }
-    }
-        private var sleepTimerIsActive: Bool {
-        sleepTimerTotal > 0 && sleepTimerRemaining > 0
-    }
-
-    private var sleepTimerCountdownText: String {
-        let total = Int(max(0, sleepTimerRemaining.rounded()))
-        if total >= 3600 {
-            return String(format: "%d:%02d:%02d", total / 3600, (total % 3600) / 60, total % 60)
-        }
-        return String(format: "%d:%02d", total / 60, total % 60)
-    }
-
-    private var sleepTimerStartedText: String {
-        guard let date = sleepTimerStartedAt else { return "" }
-        let formatter = DateFormatter()
-        formatter.dateFormat = "HH:mm"
-        return formatter.string(from: date)
     }
 
     private var sleepTimerIsActive: Bool {
