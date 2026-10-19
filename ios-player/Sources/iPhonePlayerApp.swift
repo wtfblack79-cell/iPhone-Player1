@@ -375,6 +375,14 @@ if let selectedFolder {
         }
         .buttonStyle(.plain)
         .listRowBackground(Color.white.opacity(0.08))
+        .contextMenu {
+            Button(role: .destructive) {
+                deleteFolder(folder)
+            } label: {
+                Label("Удалить папку", systemImage: "trash")
+            }
+        }
+
     }
 }
 
