@@ -901,8 +901,16 @@ private func openSharedAudio(_ url: URL) {
     private func timeString(_ seconds: Double) -> String {
         guard seconds.isFinite && seconds >= 0 else { return "0:00" }
         let total = Int(seconds)
-        return "\(total / 60):" + String(format: "%02d", total % 60)
+        let h = total / 3600
+        let m = (total % 3600) / 60
+        let s = total % 60
+
+        if h > 0 {
+            return String(format: "%d:%02d:%02d", h, m, s)
     }
+    return String(format: "%d:%02d", m, s)
+}
+
 
     private func refreshLibrary() {
         let documents = FileManager.default.urls(
