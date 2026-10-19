@@ -551,7 +551,7 @@ private func deleteFile(_ file: URL) {
     do {
         try FileManager.default.removeItem(at: file)
     } catch {
-        errorMessage = "Не удалось удалить файл": 
+        errorMessage = "Не удалось удалить файл"
 
 private func loadAudio(_ result: Result<[URL], Error>) {
         do {
