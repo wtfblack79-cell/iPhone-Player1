@@ -52,6 +52,12 @@ struct ContentView: View {
     @State private var sleepTimerStartedPosition: Double = 0 // позиция книги при старте таймера
     @State private var isSeeking = false                 // пользователь держит ползунок
 
+    // Фоны
+    @State private var showingBackgroundImporter = false
+    @State private var backgroundTarget = "main"          // "main" или "library"
+    @State private var mainScreenBackgroundImage: UIImage?
+    @State private var libraryBackgroundImage: UIImage?
+
     private let timer = Timer.publish(
         every: 0.5,
         on: .main,
@@ -63,14 +69,13 @@ struct ContentView: View {
         "wav", "aiff", "caf", "flac"
     ]
 
-    private var percentCompleted: Int {
-        guard duration > 0 else { return 0 }
-        return Int((progress / duration * 100).rounded())
-    }
-
     var body: some View {
         ZStack {
-            background
+            if currentScreenIsLibrary {
+                screenBackground(image: libraryBackgroundImage)
+            } else {
+                screenBackground(image: mainScreenBackgroundImage)
+            }
 
             if currentScreenIsLibrary {
                 libraryView
@@ -79,59 +84,68 @@ struct ContentView: View {
             }
         }
         .foregroundStyle(.white)
-        .onAppear {
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
-                let sharedDefaults = UserDefaults(suiteName: "group.com.personal.iphoneplayer")
-                if let path = sharedDefaults?.string(forKey: "lastSharedAudioPath") {
-                    openSharedAudio(URL(fileURLWithPath: path))
-                    sharedDefaults?.removeObject(forKey: "lastSharedAudioPath")
-                } else {
-                    restoreLastAudio()
-                }
-            }
+.onAppear {
+    loadBackgrounds()
+
+    DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+        let sharedDefaults = UserDefaults(suiteName: "group.com.personal.iphoneplayer")
+        if let path = sharedDefaults?.string(forKey: "lastSharedAudioPath") {
+            openSharedAudio(URL(fileURLWithPath: path))
+            sharedDefaults?.removeObject(forKey: "lastSharedAudioPath")
+        } else {
+            restoreLastAudio()
         }
-        .onOpenURL { url in
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
-                if url.scheme == "playbook" {
-                    let sharedDefaults = UserDefaults(suiteName: "group.com.personal.iphoneplayer")
-                    if let path = sharedDefaults?.string(forKey: "lastSharedAudioPath") {
-                        openSharedAudio(URL(fileURLWithPath: path))
-                        sharedDefaults?.removeObject(forKey: "lastSharedAudioPath")
-                    }
-                } else {
-                    importIncomingAudio(url)
-                }
+    }
+}
+.onOpenURL { url in
+    DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+        if url.scheme == "playbook" {
+            let sharedDefaults = UserDefaults(suiteName: "group.com.personal.iphoneplayer")
+            if let path = sharedDefaults?.string(forKey: "lastSharedAudioPath") {
+                openSharedAudio(URL(fileURLWithPath: path))
+                sharedDefaults?.removeObject(forKey: "lastSharedAudioPath")
             }
+        } else {
+            importIncomingAudio(url)
         }
-        .onReceive(timer) { _ in
-            guard let player else { return }
+    }
+}
 
-            // Пока пользователь держит ползунок — не трогаем позицию
-            if !isSeeking {
-                progress = player.currentTime
-            }
-            isPlaying = player.isPlaying
+.onReceive(timer) { _ in
+    guard let player else { return }
 
-            tickSleepTimer()
+    if !isSeeking {
+        progress = player.currentTime
+    }
+    isPlaying = player.isPlaying
 
-            if !isSeeking {
-                UserDefaults.standard.set(
-                    player.currentTime,
-                    forKey: "playbook.lastPosition"
-                )
+    tickSleepTimer()
 
-                UserDefaults.standard.set(
-                    player.url?.lastPathComponent ?? "",
-                    forKey: "playbook.lastFileName"
-                )
-            }
-        }
+    if !isSeeking {
+        UserDefaults.standard.set(
+            player.currentTime,
+            forKey: "playbook.lastPosition"
+        )
+
+        UserDefaults.standard.set(
+            player.url?.lastPathComponent ?? "",
+            forKey: "playbook.lastFileName"
+        )
+    }
+}
         .fileImporter(
             isPresented: $showingImporter,
             allowedContentTypes: [.audio, .mp3, .mpeg4Audio],
             allowsMultipleSelection: false
         ) { result in
             loadAudio(result)
+        }
+        .fileImporter(
+            isPresented: $showingBackgroundImporter,
+            allowedContentTypes: [.image],
+            allowsMultipleSelection: false
+        ) { result in
+            setBackgroundImage(result)
         }
         .overlay(alignment: .topTrailing) {
             Menu {
@@ -146,6 +160,24 @@ struct ContentView: View {
                     currentScreenIsLibrary = true
                 } label: {
                     Label("Библиотека", systemImage: "books.vertical")
+                }
+
+                Menu {
+                    Button {
+                        backgroundTarget = "main"
+                        showingBackgroundImporter = true
+                    } label: {
+                        Label("Главный экран", systemImage: "iphone")
+                    }
+
+                    Button {
+                        backgroundTarget = "library"
+                        showingBackgroundImporter = true
+                    } label: {
+                        Label("Библиотека", systemImage: "books.vertical")
+                    }
+                } label: {
+                    Label("Сменить фон", systemImage: "photo")
                 }
             } label: {
                 Image(systemName: "ellipsis")
@@ -175,7 +207,22 @@ struct ContentView: View {
         }
     }
 
-    private var background: some View {
+    // Фон одного из экранов: своя картинка или стандартный градиент
+    private func screenBackground(image: UIImage?) -> some View {
+        ZStack {
+            if let image {
+                Image(uiImage: image)
+                    .resizable()
+                    .scaledToFill()
+                    .ignoresSafeArea()
+            } else {
+                defaultBackground
+            }
+        }
+        .ignoresSafeArea()
+    }
+
+    private var defaultBackground: some View {
         ZStack {
             LinearGradient(
                 colors: [
@@ -223,62 +270,61 @@ struct ContentView: View {
 
             Spacer(minLength: 20)
 
-            Spacer(minLength: 22)
-
-            VStack(spacing: 0) {
-                Spacer(minLength: 0)
-
-                // Полоска теперь здесь — прямо над кнопками
-                VStack(spacing: 8) {
-                    SlimSlider(
-                        value: $progress,
-                        range: 0...max(duration, 1),
-                        onEditingChanged: { editing in
-                            isSeeking = editing
-                            if !editing {
-                                player?.currentTime = progress
-                            }
-                        }
-                    )
-                    .allowsHitTesting(player != nil)
-
-                    HStack {
-                        Text(timeString(progress))
-                            .font(.caption.monospacedDigit())
-                            .frame(maxWidth: .infinity, alignment: .leading)
-
-                        Text("\(percentCompleted)%")
-                            .font(.caption.monospacedDigit())
-                            .foregroundStyle(.white.opacity(0.7))
-                            .frame(maxWidth: .infinity, alignment: .center)
-
-                        Text(timeString(duration))
-                            .font(.caption.monospacedDigit())
-                            .frame(maxWidth: .infinity, alignment: .trailing)
-                    }
+           Spacer(minLength: 22)
+VStack(spacing: 0) {
+    Spacer(minLength: 0)
+    
+    // Полоска теперь здесь — прямо над кнопками
+    VStack(spacing: 8) {
+        SlimSlider(
+            value: $progress,
+            range: 0...max(duration, 1),
+            onEditingChanged: { editing in
+                isSeeking = editing
+                if !editing {
+                    player?.currentTime = progress
                 }
-                .padding(.bottom, 20)   // расстояние между полоской и кнопками
-
-                HStack(spacing: 35) {
-                    seekButton(seconds: -15, symbol: "gobackward.15")
-                    Button {
-                        togglePlayback()
-                    } label: {
-                        Image(
-                            systemName: isPlaying
-                                ? "pause.circle.fill"
-                                : "play.circle.fill"
-                        )
-                        .font(.system(size: 64))
-                    }
-                    .disabled(player == nil)
-                    seekButton(seconds: 15, symbol: "goforward.15")
-                }
-                .buttonStyle(.plain)
-                .frame(maxWidth: .infinity)
-                .padding(.bottom, 24)
             }
-            .frame(maxHeight: .infinity)
+        )
+        .disabled(player == nil)
+
+        HStack {
+            Text(timeString(progress))
+                .font(.caption.monospacedDigit())
+                .frame(maxWidth: .infinity, alignment: .leading)
+
+            Text("\(percentCompleted)%")
+                .font(.caption.monospacedDigit())
+                .foregroundStyle(.white.opacity(0.7))
+                .frame(maxWidth: .infinity, alignment: .center)
+
+            Text(timeString(duration))
+                .font(.caption.monospacedDigit())
+                .frame(maxWidth: .infinity, alignment: .trailing)
+        }
+    }
+    .padding(.bottom, 20)   // расстояние между полоской и кнопками
+    
+    HStack(spacing: 35) {
+        seekButton(seconds: -15, symbol: "gobackward.15")
+        Button {
+            togglePlayback()
+        } label: {
+            Image(
+                systemName: isPlaying
+                    ? "pause.circle.fill"
+                    : "play.circle.fill"
+            )
+            .font(.system(size: 64))
+        }
+        .disabled(player == nil)
+        seekButton(seconds: 15, symbol: "goforward.15")
+    }
+    .buttonStyle(.plain)
+    .frame(maxWidth: .infinity)
+    .padding(.bottom, 24)
+}
+.frame(maxHeight: .infinity)
 
             if !errorMessage.isEmpty {
                 Text(errorMessage)
@@ -313,6 +359,11 @@ struct ContentView: View {
             .padding(.bottom, 4)
             .background(.clear)
         }
+    }
+
+    private var percentCompleted: Int {
+        guard duration > 0 else { return 0 }
+        return Int((progress / duration * 100).rounded())
     }
 
     private var speedButton: some View {
@@ -433,159 +484,165 @@ struct ContentView: View {
     }
 
     private var libraryView: some View {
-        VStack(spacing: 16) {
-            Text("Библиотека")
-                .font(.largeTitle)
-                .bold()
+    VStack(spacing: 16) {
+        Text("Библиотека")
+            .font(.largeTitle)
+            .bold()
 
-            if libraryFiles.isEmpty && folders.isEmpty {
-                Text("Аудиокниг пока нет")
-                    .foregroundStyle(.white.opacity(0.7))
-            } else {
-                List {
-                    if let selectedFolder {
-                        Button {
-                            self.selectedFolder = nil
-                        } label: {
-                            Label("Назад к библиотеке", systemImage: "chevron.left")
-                                .foregroundStyle(.white)
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                        }
-                        .buttonStyle(.plain)
-                        .listRowBackground(Color.white.opacity(0.08))
-
-                        Text(selectedFolder)
-                            .font(.headline)
-                            .foregroundStyle(.white)
-                            .listRowBackground(Color.white.opacity(0.08))
-                    } else {
-                        ForEach(folders, id: \.self) { folder in
-                            Button {
-                                selectedFolder = folder
-                            } label: {
-                                HStack(spacing: 12) {
-                                    Image(systemName: "folder.fill")
-                                        .foregroundStyle(
-                                            Color(red: 0.85, green: 0.76, blue: 0.48)
-                                        )
-                                    Text(folder)
-                                        .foregroundStyle(.white)
-                                }
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                                .contentShape(Rectangle())
-                            }
-                            .buttonStyle(.plain)
-                            .listRowBackground(Color.white.opacity(0.08))
-                            .contextMenu {
-                                Button(role: .destructive) {
-                                    deleteFolder(folder)
-                                } label: {
-                                    Label("Удалить папку", systemImage: "trash")
-                                }
-                            }
-                        }
-                    }
-
-                    ForEach(
-                        libraryFiles.filter { file in
-                            fileFolders[file.lastPathComponent] == selectedFolder
-                        },
-                        id: \.self
-                    ) { file in
-                        Button {
-                            loadAudio(.success([file]))
-                            currentScreenIsLibrary = false
-                        } label: {
-                            Text(file.deletingPathExtension().lastPathComponent)
-                                .foregroundStyle(.white)
-                        }
-                        .listRowBackground(Color.white.opacity(0.08))
-                        .contextMenu {
-                            Menu {
-                                if folders.isEmpty {
-                                    Button {
-                                        newFolderName = ""
-                                        showingCreateFolder = true
-                                    } label: {
-                                        Label("Создать папку", systemImage: "folder.badge.plus")
-                                    }
-                                } else {
-                                    ForEach(folders, id: \.self) { folder in
-                                        Button {
-                                            moveFile(file, to: folder)
-                                        } label: {
-                                            Label(folder, systemImage: "folder")
-                                        }
-                                    }
-                                }
-                            } label: {
-                                Label("Добавить в папку…", systemImage: "folder.badge.plus")
-                            }
-
-                            if fileFolders[file.lastPathComponent] != nil {
-                                Button {
-                                    moveFile(file, to: nil)
-                                } label: {
-                                    Label("Убрать из папки", systemImage: "folder")
-                                }
-                            }
-                            Button(role: .destructive) {
-                                deleteFile(file)
-                            } label: {
-                                Label("Удалить аудио", systemImage: "trash")
-                            }
-                        }
-                    }
-                }
-                .scrollContentBackground(.hidden)
-            }
-
-            Spacer(minLength: 0)
-        }
-        .safeAreaInset(edge: .bottom, spacing: 0) {
-            HStack {
-                Button {
-                    newFolderName = ""
-                    showingCreateFolder = true
-                } label: {
-                    Image(systemName: "folder.badge.plus")
-                        .font(.system(size: 16, weight: .medium))
-                        .foregroundStyle(.white)
-                        .padding(.horizontal, 16)
-                        .padding(.vertical, 10)
-                        .overlay {
-                            Capsule()
-                                .stroke(
-                                    Color.white.opacity(0.8),
-                                    lineWidth: 1
-                                )
-                        }
-                }
-                .buttonStyle(.plain)
-
-                Spacer()
-            }
-            .padding(.horizontal, 24)
-            .padding(.top, 8)
-            .padding(.bottom, 4)
-        }
-        .alert("Новая папка", isPresented: $showingCreateFolder) {
-            TextField("Название папки", text: $newFolderName)
-
-            Button("Отмена", role: .cancel) {
-                newFolderName = ""
-            }
-
-            Button("ОК") {
-                createFolder()
-            }
-        } message: {
-            Text("Введите название папки")
-        }
-        .onAppear {
-            loadFolders()
-        }
+        if libraryFiles.isEmpty && folders.isEmpty {
+            Text("Аудиокниг пока нет")
+                .foregroundStyle(.white.opacity(0.7))
+        } else {
+            List {
+if let selectedFolder {
+    Button {
+        self.selectedFolder = nil
+    } label: {
+        Label("Назад к библиотеке", systemImage: "chevron.left")
+            .foregroundStyle(.white)
+            .frame(maxWidth: .infinity, alignment: .leading)
     }
+    .buttonStyle(.plain)
+    .listRowBackground(Color.white.opacity(0.08))
+
+    Text(selectedFolder)
+        .font(.headline)
+        .foregroundStyle(.white)
+        .listRowBackground(Color.white.opacity(0.08))
+
+} else {
+    ForEach(folders, id: \.self) { folder in
+        Button {
+            selectedFolder = folder
+        } label: {
+            HStack(spacing: 12) {
+                Image(systemName: "folder.fill")
+                    .foregroundStyle(
+                        Color(red: 0.85, green: 0.76, blue: 0.48)
+                    )
+                Text(folder)
+                    .foregroundStyle(.white)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .listRowBackground(Color.white.opacity(0.08))
+        .contextMenu {
+            Button(role: .destructive) {
+                deleteFolder(folder)
+            } label: {
+                Label("Удалить папку", systemImage: "trash")
+            }
+        }
+
+    }
+}
+
+
+
+                
+                ForEach(
+    libraryFiles.filter { file in
+        fileFolders[file.lastPathComponent] == selectedFolder
+    },
+    id: \.self
+) { file in
+                    Button {
+                        loadAudio(.success([file]))
+                        currentScreenIsLibrary = false
+                    } label: {
+                        Text(file.deletingPathExtension().lastPathComponent)
+                            .foregroundStyle(.white)
+                    }
+                    .listRowBackground(Color.white.opacity(0.08))
+                    .contextMenu {
+                        Menu {
+                            if folders.isEmpty {
+                                Button {
+                                    newFolderName = ""
+                                    showingCreateFolder = true
+                                } label: {
+                                    Label("Создать папку", systemImage: "folder.badge.plus")
+                                }
+                            } else {
+                                ForEach(folders, id: \.self) { folder in
+                                    Button {
+                                        moveFile(file, to: folder)
+                                    } label: {
+                                        Label(folder, systemImage: "folder")
+                                    }
+                                }
+                            }
+                        } label: {
+                            Label("Добавить в папку…", systemImage: "folder.badge.plus")
+                        }
+
+                        if fileFolders[file.lastPathComponent] != nil {
+                            Button {
+                                moveFile(file, to: nil)
+                            } label: {
+                                Label("Убрать из папки", systemImage: "folder")
+                            }
+                        }
+                        Button(role: .destructive) {
+                            deleteFile(file)
+                        } label: {
+                            Label("Удалить аудио", systemImage: "trash")
+                        }
+                    }
+
+                }
+            }
+            .scrollContentBackground(.hidden)
+        }
+
+        Spacer(minLength: 0)
+    }
+    .safeAreaInset(edge: .bottom, spacing: 0) {
+        HStack {
+            Button {
+                newFolderName = ""
+                showingCreateFolder = true
+            } label: {
+                Image(systemName: "folder.badge.plus")
+                    .font(.system(size: 16, weight: .medium))
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 10)
+                    .overlay {
+                        Capsule()
+                            .stroke(
+                                Color.white.opacity(0.8),
+                                lineWidth: 1
+                            )
+                    }
+            }
+            .buttonStyle(.plain)
+
+            Spacer()
+        }
+        .padding(.horizontal, 24)
+        .padding(.top, 8)
+        .padding(.bottom, 4)
+    }
+    .alert("Новая папка", isPresented: $showingCreateFolder) {
+        TextField("Название папки", text: $newFolderName)
+
+        Button("Отмена", role: .cancel) {
+            newFolderName = ""
+        }
+
+        Button("ОК") {
+            createFolder()
+        }
+    } message: {
+        Text("Введите название папки")
+    }
+    .onAppear {
+        loadFolders()
+    }
+}
 
     private func seekButton(seconds: Double, symbol: String) -> some View {
         Button {
@@ -598,93 +655,155 @@ struct ContentView: View {
     }
 
     private func loadFolders() {
-        folders = UserDefaults.standard.stringArray(
-            forKey: "playbook.libraryFolders"
-        ) ?? []
+    folders = UserDefaults.standard.stringArray(
+        forKey: "playbook.libraryFolders"
+    ) ?? []
 
-        fileFolders = UserDefaults.standard.dictionary(
-            forKey: "playbook.fileFolders"
-        ) as? [String: String] ?? [:]
-    }
+    fileFolders = UserDefaults.standard.dictionary(
+        forKey: "playbook.fileFolders"
+    ) as? [String: String] ?? [:]
+}
 
-    private func createFolder() {
-        let name = newFolderName.trimmingCharacters(
-            in: .whitespacesAndNewlines
-        )
-
-        guard !name.isEmpty else {
-            newFolderName = ""
-            return
-        }
-
-        let alreadyExists = folders.contains {
-            $0.localizedCaseInsensitiveCompare(name) == .orderedSame
-        }
-
-        guard !alreadyExists else {
-            newFolderName = ""
-            return
-        }
-
-        folders.append(name)
-
-        UserDefaults.standard.set(
-            folders,
-            forKey: "playbook.libraryFolders"
-        )
-
-        newFolderName = ""
-    }
-
-    private func moveFile(_ file: URL, to folder: String?) {
-        let key = file.lastPathComponent
-
-        if let folder {
-            fileFolders[key] = folder
+private func loadBackgrounds() {
+    let defaults = UserDefaults.standard
+    for key in ["main", "library"] {
+        guard let path = defaults.string(forKey: "playbook.backgroundPath.\(key)") else { continue }
+        guard let image = UIImage(contentsOfFile: path) else { continue }
+        if key == "main" {
+            mainScreenBackgroundImage = image
         } else {
-            fileFolders.removeValue(forKey: key)
+            libraryBackgroundImage = image
+        }
+    }
+}
+
+private func setBackgroundImage(_ result: Result<[URL], Error>) {
+    do {
+        guard let sourceURL = try result.get().first else { return }
+
+        let accessGranted = sourceURL.startAccessingSecurityScopedResource()
+        defer {
+            if accessGranted {
+                sourceURL.stopAccessingSecurityScopedResource()
+            }
         }
 
-        UserDefaults.standard.set(
-            fileFolders,
-            forKey: "playbook.fileFolders"
-        )
-    }
+        let documents = FileManager.default.urls(
+            for: .documentDirectory,
+            in: .userDomainMask
+        )[0]
 
-    private func deleteFile(_ file: URL) {
-        do {
-            try FileManager.default.removeItem(at: file)
-        } catch {
-            errorMessage = "Не удалось удалить файл"
+        let key = backgroundTarget == "library" ? "library" : "main"
+        let ext = sourceURL.pathExtension.isEmpty
+            ? "jpg"
+            : sourceURL.pathExtension.lowercased()
+
+        let destination = documents.appendingPathComponent(
+            "playbook.background.\(key).\(ext)"
+        )
+
+        if FileManager.default.fileExists(atPath: destination.path) {
+            try FileManager.default.removeItem(at: destination)
+        }
+        try FileManager.default.copyItem(at: sourceURL, to: destination)
+
+        guard let image = UIImage(contentsOfFile: destination.path) else {
+            errorMessage = "Не удалось открыть изображение"
             return
         }
 
-        fileFolders.removeValue(forKey: file.lastPathComponent)
-        UserDefaults.standard.set(fileFolders, forKey: "playbook.fileFolders")
+        UserDefaults.standard.set(
+            destination.path,
+            forKey: "playbook.backgroundPath.\(key)"
+        )
 
-        if player?.url == file {
-            player?.stop()
-            player = nil
-            isPlaying = false
-            fileName = "Аудиокнига не выбрана"
+        if key == "main" {
+            mainScreenBackgroundImage = image
+        } else {
+            libraryBackgroundImage = image
         }
+    } catch {
+        errorMessage = "Не удалось установить фон: \(error.localizedDescription)"
+    }
+}
 
-        refreshLibrary()
+private func createFolder() {
+    let name = newFolderName.trimmingCharacters(
+        in: .whitespacesAndNewlines
+    )
+
+    guard !name.isEmpty else {
+        newFolderName = ""
+        return
     }
 
-    private func deleteFolder(_ folder: String) {
-        folders.removeAll { $0 == folder }
-        for key in fileFolders.keys where fileFolders[key] == folder {
-            fileFolders.removeValue(forKey: key)
-        }
-        UserDefaults.standard.set(folders, forKey: "playbook.libraryFolders")
-        UserDefaults.standard.set(fileFolders, forKey: "playbook.fileFolders")
-        if selectedFolder == folder {
-            selectedFolder = nil
-        }
+    let alreadyExists = folders.contains {
+        $0.localizedCaseInsensitiveCompare(name) == .orderedSame
     }
 
-    private func loadAudio(_ result: Result<[URL], Error>) {
+    guard !alreadyExists else {
+        newFolderName = ""
+        return
+    }
+
+    folders.append(name)
+
+    UserDefaults.standard.set(
+        folders,
+        forKey: "playbook.libraryFolders"
+    )
+
+    newFolderName = ""
+}
+
+private func moveFile(_ file: URL, to folder: String?) {
+    let key = file.lastPathComponent
+
+    if let folder {
+        fileFolders[key] = folder
+    } else {
+        fileFolders.removeValue(forKey: key)
+    }
+
+    UserDefaults.standard.set(
+        fileFolders,
+        forKey: "playbook.fileFolders"
+    )
+}
+private func deleteFile(_ file: URL) {
+    do {
+        try FileManager.default.removeItem(at: file)
+    } catch {
+        errorMessage = "Не удалось удалить файл"
+        return
+    }
+
+    fileFolders.removeValue(forKey: file.lastPathComponent)
+    UserDefaults.standard.set(fileFolders, forKey: "playbook.fileFolders")
+
+    if player?.url == file {
+        player?.stop()
+        player = nil
+        isPlaying = false
+        fileName = "Аудиокнига не выбрана"
+    }
+
+    refreshLibrary()
+}
+
+private func deleteFolder(_ folder: String) {
+    folders.removeAll { $0 == folder }
+    for key in fileFolders.keys where fileFolders[key] == folder {
+        fileFolders.removeValue(forKey: key)
+    }
+    UserDefaults.standard.set(folders, forKey: "playbook.libraryFolders")
+    UserDefaults.standard.set(fileFolders, forKey: "playbook.fileFolders")
+    if selectedFolder == folder {
+        selectedFolder = nil
+    }
+}
+
+private func loadAudio(_ result: Result<[URL], Error>) {
         do {
             guard let sourceURL = try result.get().first else { return }
 
@@ -736,63 +855,63 @@ struct ContentView: View {
         }
     }
 
-    private func openSharedAudio(_ url: URL) {
-        let didAccess = url.startAccessingSecurityScopedResource()
-        defer {
-            if didAccess {
-                url.stopAccessingSecurityScopedResource()
-            }
-        }
-
-        let allowedExtensions: Set<String> = [
-            "mp3", "m4a", "m4b", "aac",
-            "wav", "aiff", "caf", "flac"
-        ]
-
-        guard allowedExtensions.contains(url.pathExtension.lowercased()) else {
-            errorMessage = "Этот формат аудио не поддерживается."
-            return
-        }
-
-        do {
-            let documentsURL = FileManager.default.urls(
-                for: .documentDirectory,
-                in: .userDomainMask
-            )[0]
-
-            let sourceURL = url.standardizedFileURL
-            var destinationURL = documentsURL.appendingPathComponent(
-                url.lastPathComponent
-            )
-
-            if sourceURL != destinationURL.standardizedFileURL {
-                let baseName = url.deletingPathExtension().lastPathComponent
-                let fileExtension = url.pathExtension
-                var number = 2
-
-                while FileManager.default.fileExists(
-                    atPath: destinationURL.path
-                ) {
-                    destinationURL = documentsURL.appendingPathComponent(
-                        "\(baseName) (\(number)).\(fileExtension)"
-                    )
-                    number += 1
-                }
-
-                try FileManager.default.copyItem(
-                    at: sourceURL,
-                    to: destinationURL
-                )
-            }
-
-            loadAudio(.success([destinationURL]))
-            currentScreenIsLibrary = false
-            errorMessage = ""
-        } catch {
-            errorMessage = "Не удалось открыть аудио: \(error.localizedDescription)"
+private func openSharedAudio(_ url: URL) {
+    let didAccess = url.startAccessingSecurityScopedResource()
+    defer {
+        if didAccess {
+            url.stopAccessingSecurityScopedResource()
         }
     }
 
+    let allowedExtensions: Set<String> = [
+        "mp3", "m4a", "m4b", "aac",
+        "wav", "aiff", "caf", "flac"
+    ]
+
+    guard allowedExtensions.contains(url.pathExtension.lowercased()) else {
+        errorMessage = "Этот формат аудио не поддерживается."
+        return
+    }
+
+    do {
+        let documentsURL = FileManager.default.urls(
+            for: .documentDirectory,
+            in: .userDomainMask
+        )[0]
+
+        let sourceURL = url.standardizedFileURL
+        var destinationURL = documentsURL.appendingPathComponent(
+            url.lastPathComponent
+        )
+
+        if sourceURL != destinationURL.standardizedFileURL {
+            let baseName = url.deletingPathExtension().lastPathComponent
+            let fileExtension = url.pathExtension
+            var number = 2
+
+            while FileManager.default.fileExists(
+                atPath: destinationURL.path
+            ) {
+                destinationURL = documentsURL.appendingPathComponent(
+                    "\(baseName) (\(number)).\(fileExtension)"
+                )
+                number += 1
+            }
+
+            try FileManager.default.copyItem(
+                at: sourceURL,
+                to: destinationURL
+            )
+        }
+
+        loadAudio(.success([destinationURL]))
+        currentScreenIsLibrary = false
+        errorMessage = ""
+    } catch {
+        errorMessage = "Не удалось открыть аудио: \(error.localizedDescription)"
+    }
+}
+    
     private func importIncomingAudio(_ url: URL) {
         let didAccess = url.startAccessingSecurityScopedResource()
         defer {
@@ -849,46 +968,46 @@ struct ContentView: View {
             errorMessage = "Не удалось добавить аудио: \(error.localizedDescription)"
         }
     }
-
+    
     private func restoreLastAudio() {
-        guard !didAttemptRestore else { return }
-        didAttemptRestore = true
+    guard !didAttemptRestore else { return }
+    didAttemptRestore = true
 
-        let savedFileName = UserDefaults.standard.string(
-            forKey: "playbook.lastFileName"
-        ) ?? ""
+    let savedFileName = UserDefaults.standard.string(
+        forKey: "playbook.lastFileName"
+    ) ?? ""
 
-        guard !savedFileName.isEmpty else { return }
+    guard !savedFileName.isEmpty else { return }
 
-        let savedPosition = UserDefaults.standard.double(
-            forKey: "playbook.lastPosition"
-        )
+    let savedPosition = UserDefaults.standard.double(
+        forKey: "playbook.lastPosition"
+    )
 
-        let documentsURL = FileManager.default.urls(
-            for: .documentDirectory,
-            in: .userDomainMask
-        )[0]
+    let documentsURL = FileManager.default.urls(
+        for: .documentDirectory,
+        in: .userDomainMask
+    )[0]
 
-        let savedURL = documentsURL.appendingPathComponent(savedFileName)
+    let savedURL = documentsURL.appendingPathComponent(savedFileName)
 
-        guard FileManager.default.fileExists(atPath: savedURL.path) else {
-            return
-        }
-
-        loadAudio(.success([savedURL]))
-
-        guard let player else { return }
-
-        player.currentTime = max(
-            0,
-            min(savedPosition - 2, player.duration)
-        )
-
-        progress = player.currentTime
-        isPlaying = false
-        player.pause()
+    guard FileManager.default.fileExists(atPath: savedURL.path) else {
+        return
     }
 
+    loadAudio(.success([savedURL]))
+
+    guard let player else { return }
+
+    player.currentTime = max(
+        0,
+        min(savedPosition - 2, player.duration)
+    )
+
+    progress = player.currentTime
+    isPlaying = false
+    player.pause()
+}
+    
     private func togglePlayback() {
         guard let player else { return }
 
@@ -922,9 +1041,10 @@ struct ContentView: View {
 
         if h > 0 {
             return String(format: "%d:%02d:%02d", h, m, s)
-        }
-        return String(format: "%d:%02d", m, s)
     }
+    return String(format: "%d:%02d", m, s)
+}
+
 
     private func refreshLibrary() {
         let documents = FileManager.default.urls(
@@ -952,23 +1072,23 @@ struct ContentView: View {
     }
 }
 
-// Ползунок с маленьким кружком и обычной толщиной линии
+// Тонкий ползунок с маленьким кружком
 struct SlimSlider: View {
     @Binding var value: Double
     var range: ClosedRange<Double>
     var onEditingChanged: (Bool) -> Void
 
-    private let trackHeight: CGFloat = 6
     private let knobSize: CGFloat = 16
+    private let trackHeight: CGFloat = 6
     private let accent = Color(red: 0.20, green: 0.55, blue: 1.0)
 
     var body: some View {
         GeometryReader { geo in
-            let width = geo.size.width
-            let span = range.upperBound - range.lowerBound
-            let fraction = span > 0
-                ? min(max((value - range.lowerBound) / span, 0), 1)
-                : 0
+            let width = max(geo.size.width, 1)
+            let span = max(range.upperBound - range.lowerBound, 0.001)
+            let fraction = CGFloat((value - range.lowerBound) / span)
+            let clamped = min(max(fraction, 0), 1)
+            let knobX = clamped * width
 
             ZStack(alignment: .leading) {
                 Capsule()
@@ -977,28 +1097,27 @@ struct SlimSlider: View {
 
                 Capsule()
                     .fill(accent)
-                    .frame(width: max(0, width * fraction), height: trackHeight)
+                    .frame(width: max(knobX, knobSize / 2), height: trackHeight)
 
                 Circle()
                     .fill(accent)
                     .frame(width: knobSize, height: knobSize)
-                    .shadow(color: .black.opacity(0.25), radius: 2, y: 1)
-                    .offset(x: max(0, min(width - knobSize, width * fraction - knobSize / 2)))
+                    .offset(x: max(0, min(knobX - knobSize / 2, width - knobSize)))
             }
-            .frame(maxHeight: .infinity, alignment: .center)
+            .frame(height: knobSize)
             .contentShape(Rectangle())
             .gesture(
                 DragGesture(minimumDistance: 0)
                     .onChanged { g in
+                        let f = min(max(0, g.location.x / width), 1)
+                        value = range.lowerBound + Double(f) * span
                         onEditingChanged(true)
-                        let f = min(max(g.location.x / max(width, 1), 0), 1)
-                        value = range.lowerBound + f * span
                     }
                     .onEnded { _ in
                         onEditingChanged(false)
                     }
             )
         }
-        .frame(height: 32)
+        .frame(height: knobSize)
     }
 }
