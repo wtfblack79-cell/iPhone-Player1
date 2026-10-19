@@ -46,6 +46,11 @@ struct ContentView: View {
     @State private var selectedFolder: String? = nil
     @State private var fileFolders: [String: String] = [:]
     @State private var didAttemptRestore = false
+    @State private var sleepTimerTotal: Int = 0          // выбранный таймер в минутах, 0 = выключен
+    @State private var sleepTimerRemaining: TimeInterval = 0  // сколько осталось, секунды
+    @State private var sleepTimerStartedAt: Date?        // когда запустили
+    @State private var sleepTimerExpired = false         // сработал ли уже
+
 
     private let timer = Timer.publish(
         every: 0.5,
@@ -99,6 +104,8 @@ struct ContentView: View {
 
     progress = player.currentTime
     isPlaying = player.isPlaying
+    tickSleepTimer()
+
 
     UserDefaults.standard.set(
         player.currentTime,
@@ -268,17 +275,10 @@ VStack(spacing: 0) {
         .padding(.top, 24)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .safeAreaInset(edge: .bottom, spacing: 0) {
-HStack(spacing: 12) {
-    speedButton
-    sleepTimerButton
-    Spacer()
-}
-.padding(.horizontal, 24)
-.padding(.top, 8)
-.padding(.bottom, 4)
-.background(.clear)
-        }
-    }
+            VStack(spacing: 6) {
+                if sleepTimerExpired {
+                    Text("Таймер сработал — запущен в 
+
 
     private var speedButton: some View {
         Menu {
@@ -308,27 +308,110 @@ HStack(spacing: 12) {
             player?.rate = newSpeed
         }
     }
+        private var sleepTimerIsActive: Bool {
+        sleepTimerTotal > 0 && sleepTimerRemaining > 0
+    }
+
+    private var sleepTimerCountdownText: String {
+        let total = Int(max(0, sleepTimerRemaining.rounded()))
+        if total >= 3600 {
+            return String(format: "%d:%02d:%02d", total / 3600, (total % 3600) / 60, total % 60)
+        }
+        return String(format: "%d:%02d", total / 60, total % 60)
+    }
+
+    private var sleepTimerStartedText: String {
+        guard let date = sleepTimerStartedAt else { return "" }
+        let formatter = DateFormatter()
+        formatter.dateFormat = "HH:mm"
+        return formatter.string(from: date)
+    }
+
+    private var sleepTimerIsActive: Bool {
+        sleepTimerTotal > 0 && sleepTimerRemaining > 0
+    }
+
+    private var sleepTimerCountdownText: String {
+        let total = Int(max(0, sleepTimerRemaining.rounded()))
+        if total >= 3600 {
+            return String(format: "%d:%02d:%02d", total / 3600, (total % 3600) / 60, total % 60)
+        }
+        return String(format: "%d:%02d", total / 60, total % 60)
+    }
+
+    private var sleepTimerStartedText: String {
+        guard let date = sleepTimerStartedAt else { return "" }
+        let formatter = DateFormatter()
+        formatter.dateFormat = "HH:mm"
+        return formatter.string(from: date)
+    }
+
     private var sleepTimerButton: some View {
-    Menu {
-        Button("Выкл") { }
-        Button("5 мин") { }
-        Button("10 мин") { }
-        Button("15 мин") { }
-        Button("30 мин") { }
-        Button("45 мин") { }
-        Button("1 час") { }
-        Button("Конец главы") { }
-    } label: {
-        Image(systemName: "moon.zzz")
-            .font(.system(size: 16, weight: .medium))
+        Menu {
+            Picker("Таймер сна", selection: $sleepTimerTotal) {
+                Text("Выкл").tag(0)
+                Text("5 мин").tag(5)
+                Text("10 мин").tag(10)
+                Text("15 мин").tag(15)
+                Text("30 мин").tag(30)
+                Text("45 мин").tag(45)
+                Text("1 час").tag(60)
+            }
+        } label: {
+            HStack(spacing: 5) {
+                Image(systemName: "moon.zzz")
+                    .font(.system(size: 16, weight: .medium))
+
+                if sleepTimerIsActive {
+                    Text(sleepTimerCountdownText)
+                        .font(.system(size: 16, weight: .medium))
+                        .monospacedDigit()
+                        .fixedSize()
+                }
+            }
             .foregroundStyle(.white)
-            .frame(width: 44, height: 44)
+            .padding(.horizontal, sleepTimerIsActive ? 16 : 14)
+            .frame(height: 44)
             .overlay {
-                Circle()
+                RoundedRectangle(cornerRadius: 18)
                     .stroke(Color.white.opacity(0.8), lineWidth: 1)
             }
+            .animation(.spring(response: 0.35, dampingFraction: 0.8), value: sleepTimerIsActive)
+        }
+        .onChange(of: sleepTimerTotal) { newMinutes in
+            setSleepTimer(minutes: newMinutes)
+        }
     }
-}
+
+    private func setSleepTimer(minutes: Int) {
+        if minutes <= 0 {
+            sleepTimerTotal = 0
+            sleepTimerRemaining = 0
+            sleepTimerStartedAt = nil
+            sleepTimerExpired = false
+            return
+        }
+
+        sleepTimerTotal = minutes
+        sleepTimerRemaining = TimeInterval(minutes * 60)
+        sleepTimerStartedAt = Date()
+        sleepTimerExpired = false
+    }
+
+    private func tickSleepTimer() {
+        guard sleepTimerTotal > 0, sleepTimerRemaining > 0, !sleepTimerExpired else { return }
+
+        // На паузе обратный отсчёт замирает
+        guard let player, player.isPlaying else { return }
+
+        sleepTimerRemaining = max(0, sleepTimerRemaining - 0.5)
+
+        if sleepTimerRemaining <= 0 {
+            sleepTimerExpired = true
+            player.pause()
+            isPlaying = false
+        }
+    }
 
     private var libraryView: some View {
     VStack(spacing: 16) {
