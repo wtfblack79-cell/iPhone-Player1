@@ -70,12 +70,14 @@ struct ContentView: View {
         }
         .foregroundStyle(.white)
 .onAppear {
-    let sharedDefaults = UserDefaults(suiteName: "group.com.personal.iphoneplayer")
-    if let path = sharedDefaults?.string(forKey: "lastSharedAudioPath") {
-        openSharedAudio(URL(fileURLWithPath: path))
-        sharedDefaults?.removeObject(forKey: "lastSharedAudioPath")
-    } else {
-        restoreLastAudio()
+    DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+        let sharedDefaults = UserDefaults(suiteName: "group.com.personal.iphoneplayer")
+        if let path = sharedDefaults?.string(forKey: "lastSharedAudioPath") {
+            openSharedAudio(URL(fileURLWithPath: path))
+            sharedDefaults?.removeObject(forKey: "lastSharedAudioPath")
+        } else {
+            restoreLastAudio()
+        }
     }
 }
 .onOpenURL { url in
