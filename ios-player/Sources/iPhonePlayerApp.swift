@@ -424,6 +424,11 @@ if let selectedFolder {
                                 Label("Убрать из папки", systemImage: "folder")
                             }
                         }
+                        Button(role: .destructive) {
+                            deleteFile(file)
+                        } label: {
+                            Label("Удалить аудио", systemImage: "trash")
+                        }
                     }
 
                 }
