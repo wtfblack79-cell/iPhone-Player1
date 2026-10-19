@@ -3,16 +3,26 @@ import UIKit
 import AVFoundation
 import UniformTypeIdentifiers
 
+// Шрифт приложения — Shantell Sans
 enum AppFont {
     static func regular(_ size: CGFloat) -> Font {
         .custom("ShantellSans-Regular", size: size)
     }
+
     static func bold(_ size: CGFloat) -> Font {
         .custom("ShantellSans-Bold", size: size)
     }
+
     static func italic(_ size: CGFloat) -> Font {
         .custom("ShantellSans-Italic", size: size)
     }
+}
+
+// Какое самодельное меню сейчас открыто
+enum ActiveMenu {
+    case main
+    case speed
+    case sleep
 }
 
 @main
@@ -38,6 +48,15 @@ struct iPhonePlayerApp: App {
             UserDefaults.standard.set(path, forKey: "pendingAudioPath")
         }
     }
+}
+
+// Пункт самодельного меню
+struct MenuOption: Identifiable {
+    let id: String
+    let title: String
+    let systemImage: String?
+    let isSelected: Bool
+    let action: () -> Void
 }
 
 struct ContentView: View {
@@ -71,6 +90,9 @@ struct ContentView: View {
     @State private var libraryBackground: UIImage?
     @State private var showingBackgroundPicker = false
     @State private var backgroundTarget = "home"
+
+    // Самодельные меню
+    @State private var activeMenu: ActiveMenu? = nil
 
     private let timer = Timer.publish(
         every: 0.5,
@@ -157,35 +179,8 @@ struct ContentView: View {
             importBackgroundImage(result)
         }
         .overlay(alignment: .topTrailing) {
-            Menu {
-                Button {
-                    showingImporter = true
-                } label: {
-                    Label("Дропнуть аудио", systemImage: "folder")
-                }
-
-                Button {
-                    refreshLibrary()
-                    currentScreenIsLibrary = true
-                } label: {
-                    Label("Библиотека", systemImage: "books.vertical")
-                }
-
-                Menu {
-                    Button {
-                        chooseBackground(for: "home")
-                    } label: {
-                        Label("Главный экран", systemImage: "iphone")
-                    }
-
-                    Button {
-                        chooseBackground(for: "library")
-                    } label: {
-                        Label("Библиотека", systemImage: "books.vertical.fill")
-                    }
-                } label: {
-                    Label("Сменить фон", systemImage: "photo")
-                }
+            Button {
+                activeMenu = .main
             } label: {
                 Image(systemName: "ellipsis")
                     .font(.system(size: 24, weight: .bold))
@@ -193,6 +188,7 @@ struct ContentView: View {
                     .background(Color.white.opacity(0.12))
                     .clipShape(Circle())
             }
+            .buttonStyle(.plain)
             .padding(.top, 12)
             .padding(.trailing, 18)
         }
@@ -212,6 +208,183 @@ struct ContentView: View {
                 .padding(.leading, 18)
             }
         }
+        .overlay {
+            if activeMenu != nil {
+                menuOverlay
+            }
+        }
+        .animation(.easeOut(duration: 0.18), value: activeMenu)
+    }
+
+    // MARK: - Самодельное меню
+
+    private var panelAlignment: Alignment {
+        activeMenu == .main ? .topTrailing : .bottomLeading
+    }
+
+    private var panelAnchor: UnitPoint {
+        activeMenu == .main ? .topTrailing : .bottomLeading
+    }
+
+    private var panelEdgeInsets: EdgeInsets {
+        if activeMenu == .main {
+            return EdgeInsets(top: 70, leading: 60, bottom: 0, trailing: 18)
+        } else {
+            return EdgeInsets(top: 0, leading: 24, bottom: 86, trailing: 60)
+        }
+    }
+
+    private var activeMenuTitle: String? {
+        switch activeMenu {
+        case .speed: return "Скорость"
+        case .sleep: return "Таймер сна"
+        default: return nil
+        }
+    }
+
+    private var activeMenuOptions: [MenuOption] {
+        switch activeMenu {
+        case .main:
+            return [
+                MenuOption(
+                    id: "import",
+                    title: "Дропнуть аудио",
+                    systemImage: "folder",
+                    isSelected: false,
+                    action: { showingImporter = true }
+                ),
+                MenuOption(
+                    id: "library",
+                    title: "Библиотека",
+                    systemImage: "books.vertical",
+                    isSelected: false,
+                    action: {
+                        refreshLibrary()
+                        currentScreenIsLibrary = true
+                    }
+                ),
+                MenuOption(
+                    id: "bgHome",
+                    title: "Фон: главный экран",
+                    systemImage: "iphone",
+                    isSelected: false,
+                    action: { chooseBackground(for: "home") }
+                ),
+                MenuOption(
+                    id: "bgLibrary",
+                    title: "Фон: библиотека",
+                    systemImage: "books.vertical.fill",
+                    isSelected: false,
+                    action: { chooseBackground(for: "library") }
+                )
+            ]
+        case .speed:
+            return [0.75, 1.0, 1.25, 1.5, 2.0].map { value in
+                MenuOption(
+                    id: String(value),
+                    title: speedLabel(value),
+                    systemImage: nil,
+                    isSelected: speed == value,
+                    action: {
+                        speed = value
+                        player?.rate = value
+                    }
+                )
+            }
+        case .sleep:
+            return [0, 5, 10, 15, 30, 45, 60].map { minutes in
+                MenuOption(
+                    id: String(minutes),
+                    title: sleepLabel(minutes),
+                    systemImage: nil,
+                    isSelected: sleepTimerTotal == minutes,
+                    action: {
+                        sleepTimerTotal = minutes
+                        setSleepTimer(minutes: minutes)
+                    }
+                )
+            }
+        default:
+            return []
+        }
+    }
+
+    private var menuOverlay: some View {
+        ZStack {
+            Color.black.opacity(0.35)
+                .ignoresSafeArea()
+                .onTapGesture {
+                    activeMenu = nil
+                }
+
+            VStack(alignment: .leading, spacing: 0) {
+                if let title = activeMenuTitle {
+                    Text(title)
+                        .font(AppFont.italic(13))
+                        .foregroundStyle(.white.opacity(0.55))
+                        .padding(.horizontal, 16)
+                        .padding(.top, 12)
+                        .padding(.bottom, 4)
+                }
+
+                ForEach(activeMenuOptions) { option in
+                    Button {
+                        option.action()
+                        activeMenu = nil
+                    } label: {
+                        HStack(spacing: 10) {
+                            if let icon = option.systemImage {
+                                Image(systemName: icon)
+                                    .font(.system(size: 16, weight: .medium))
+                                    .frame(width: 24)
+                            }
+
+                            Text(option.title)
+                                .font(AppFont.regular(17))
+
+                            Spacer()
+
+                            if option.isSelected {
+                                Image(systemName: "checkmark")
+                                    .font(.system(size: 14, weight: .bold))
+                            }
+                        }
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 12)
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+            .frame(width: 260, alignment: .leading)
+            .background(
+                RoundedRectangle(cornerRadius: 24)
+                    .fill(Color(red: 0.05, green: 0.06, blue: 0.15).opacity(0.9))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 24)
+                    .stroke(Color.white.opacity(0.22), lineWidth: 1)
+            )
+            .shadow(color: .black.opacity(0.45), radius: 24)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: panelAlignment)
+            .padding(panelEdgeInsets)
+            .transition(
+                .opacity.combined(with: .scale(scale: 0.9, anchor: panelAnchor))
+            )
+        }
+    }
+
+    private func speedLabel(_ value: Float) -> String {
+        let text = String(format: "%g", value)
+            .replacingOccurrences(of: ".", with: ",")
+        return "\(text)×"
+    }
+
+    private func sleepLabel(_ minutes: Int) -> String {
+        if minutes == 0 { return "Выкл" }
+        if minutes == 60 { return "1 час" }
+        return "\(minutes) мин"
     }
 
     // MARK: - Фон
@@ -374,7 +547,7 @@ struct ContentView: View {
                 .padding(.top, 4)
 
             Text(fileName)
-                .font(AppFont.regular(17))
+                .font(AppFont.bold(20))
                 .multilineTextAlignment(.center)
                 .lineLimit(3)
                 .padding(.horizontal, 12)
@@ -472,18 +645,12 @@ struct ContentView: View {
     }
 
     private var speedButton: some View {
-        Menu {
-            Picker("Скорость", selection: $speed) {
-                Text("0,75×").tag(Float(0.75))
-                Text("1×").tag(Float(1.0))
-                Text("1,25×").tag(Float(1.25))
-                Text("1,5×").tag(Float(1.5))
-                Text("2×").tag(Float(2.0))
-            }
+        Button {
+            activeMenu = .speed
         } label: {
             HStack(spacing: 5) {
-                Text("\(speed, specifier: "%g")×")
-                    .font(AppFont.regular(16))
+                Text(speedLabel(speed))
+                    .font(AppFont.bold(16))
 
                 Image(systemName: "chevron.up.chevron.down")
                     .font(.system(size: 10, weight: .medium))
@@ -495,9 +662,7 @@ struct ContentView: View {
                     .stroke(Color.white.opacity(0.8), lineWidth: 1)
             }
         }
-        .onChange(of: speed) { newSpeed in
-            player?.rate = newSpeed
-        }
+        .buttonStyle(.plain)
     }
 
     private var sleepTimerIsActive: Bool {
@@ -520,16 +685,8 @@ struct ContentView: View {
     }
 
     private var sleepTimerButton: some View {
-        Menu {
-            Picker("Таймер сна", selection: $sleepTimerTotal) {
-                Text("Выкл").tag(0)
-                Text("5 мин").tag(5)
-                Text("10 мин").tag(10)
-                Text("15 мин").tag(15)
-                Text("30 мин").tag(30)
-                Text("45 мин").tag(45)
-                Text("1 час").tag(60)
-            }
+        Button {
+            activeMenu = .sleep
         } label: {
             HStack(spacing: 5) {
                 Image(systemName: "moon.zzz")
@@ -537,8 +694,7 @@ struct ContentView: View {
 
                 if sleepTimerIsActive {
                     Text(sleepTimerCountdownText)
-                        .font(AppFont.regular(16))
-                        .monospacedDigit()
+                        .font(AppFont.regular(16).monospacedDigit())
                         .fixedSize()
                 }
             }
@@ -551,9 +707,7 @@ struct ContentView: View {
             }
             .animation(.spring(response: 0.35, dampingFraction: 0.8), value: sleepTimerIsActive)
         }
-        .onChange(of: sleepTimerTotal) { newMinutes in
-            setSleepTimer(minutes: newMinutes)
-        }
+        .buttonStyle(.plain)
     }
 
     private func setSleepTimer(minutes: Int) {
@@ -597,7 +751,7 @@ struct ContentView: View {
 
             if libraryFiles.isEmpty && folders.isEmpty {
                 Text("Аудиокниг пока нет")
-                    .font(AppFont.regular(17))
+                    .font(AppFont.regular(15))
                     .foregroundStyle(.white.opacity(0.7))
             } else {
                 List {
