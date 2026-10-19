@@ -33,7 +33,6 @@ struct ContentView: View {
     @State private var fileName = "Аудиокнига не выбрана"
     @State private var isPlaying = false
     @State private var progress: Double = 0
-    @State private var isSeeking = false   // пользователь держит ползунок
     @State private var duration: Double = 0
     @State private var speed: Float = 1.0
     @State private var showingImporter = false
@@ -51,6 +50,7 @@ struct ContentView: View {
     @State private var sleepTimerStartedAt: Date?        // когда запустили
     @State private var sleepTimerExpired = false         // сработал ли уже
     @State private var sleepTimerStartedPosition: Double = 0 // позиция книги при старте таймера
+    @State private var isSeeking = false                 // пользователь держит ползунок
 
     private let timer = Timer.publish(
         every: 0.5,
@@ -62,6 +62,11 @@ struct ContentView: View {
         "mp3", "m4a", "m4b", "aac",
         "wav", "aiff", "caf", "flac"
     ]
+
+    private var percentCompleted: Int {
+        guard duration > 0 else { return 0 }
+        return Int((progress / duration * 100).rounded())
+    }
 
     var body: some View {
         ZStack {
@@ -101,7 +106,7 @@ struct ContentView: View {
         .onReceive(timer) { _ in
             guard let player else { return }
 
-            // Пока пользователь держит ползунок — не перезаписываем позицию
+            // Пока пользователь держит ползунок — не трогаем позицию
             if !isSeeking {
                 progress = player.currentTime
             }
@@ -114,12 +119,12 @@ struct ContentView: View {
                     player.currentTime,
                     forKey: "playbook.lastPosition"
                 )
-            }
 
-            UserDefaults.standard.set(
-                player.url?.lastPathComponent ?? "",
-                forKey: "playbook.lastFileName"
-            )
+                UserDefaults.standard.set(
+                    player.url?.lastPathComponent ?? "",
+                    forKey: "playbook.lastFileName"
+                )
+            }
         }
         .fileImporter(
             isPresented: $showingImporter,
@@ -225,9 +230,9 @@ struct ContentView: View {
 
                 // Полоска теперь здесь — прямо над кнопками
                 VStack(spacing: 8) {
-                    Slider(
+                    SlimSlider(
                         value: $progress,
-                        in: 0...max(duration, 1),
+                        range: 0...max(duration, 1),
                         onEditingChanged: { editing in
                             isSeeking = editing
                             if !editing {
@@ -235,16 +240,23 @@ struct ContentView: View {
                             }
                         }
                     )
-                    .disabled(player == nil)
+                    .allowsHitTesting(player != nil)
 
                     HStack {
                         Text(timeString(progress))
-                        Spacer()
+                            .font(.caption.monospacedDigit())
+                            .frame(maxWidth: .infinity, alignment: .leading)
+
+                        Text("\(percentCompleted)%")
+                            .font(.caption.monospacedDigit())
+                            .foregroundStyle(.white.opacity(0.7))
+                            .frame(maxWidth: .infinity, alignment: .center)
+
                         Text(timeString(duration))
+                            .font(.caption.monospacedDigit())
+                            .frame(maxWidth: .infinity, alignment: .trailing)
                     }
-                    .font(.caption.monospacedDigit())
                 }
-                .padding(.horizontal)
                 .padding(.bottom, 20)   // расстояние между полоской и кнопками
 
                 HStack(spacing: 35) {
@@ -446,7 +458,6 @@ struct ContentView: View {
                             .font(.headline)
                             .foregroundStyle(.white)
                             .listRowBackground(Color.white.opacity(0.08))
-
                     } else {
                         ForEach(folders, id: \.self) { folder in
                             Button {
@@ -938,5 +949,56 @@ struct ContentView: View {
         } catch {
             errorMessage = "Не удалось загрузить библиотеку"
         }
+    }
+}
+
+// Ползунок с маленьким кружком и обычной толщиной линии
+struct SlimSlider: View {
+    @Binding var value: Double
+    var range: ClosedRange<Double>
+    var onEditingChanged: (Bool) -> Void
+
+    private let trackHeight: CGFloat = 6
+    private let knobSize: CGFloat = 16
+    private let accent = Color(red: 0.20, green: 0.55, blue: 1.0)
+
+    var body: some View {
+        GeometryReader { geo in
+            let width = geo.size.width
+            let span = range.upperBound - range.lowerBound
+            let fraction = span > 0
+                ? min(max((value - range.lowerBound) / span, 0), 1)
+                : 0
+
+            ZStack(alignment: .leading) {
+                Capsule()
+                    .fill(Color.white.opacity(0.3))
+                    .frame(height: trackHeight)
+
+                Capsule()
+                    .fill(accent)
+                    .frame(width: max(0, width * fraction), height: trackHeight)
+
+                Circle()
+                    .fill(accent)
+                    .frame(width: knobSize, height: knobSize)
+                    .shadow(color: .black.opacity(0.25), radius: 2, y: 1)
+                    .offset(x: max(0, min(width - knobSize, width * fraction - knobSize / 2)))
+            }
+            .frame(maxHeight: .infinity, alignment: .center)
+            .contentShape(Rectangle())
+            .gesture(
+                DragGesture(minimumDistance: 0)
+                    .onChanged { g in
+                        onEditingChanged(true)
+                        let f = min(max(g.location.x / max(width, 1), 0), 1)
+                        value = range.lowerBound + f * span
+                    }
+                    .onEnded { _ in
+                        onEditingChanged(false)
+                    }
+            )
+        }
+        .frame(height: 32)
     }
 }
