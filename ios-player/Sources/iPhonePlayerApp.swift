@@ -552,6 +552,33 @@ private func deleteFile(_ file: URL) {
         try FileManager.default.removeItem(at: file)
     } catch {
         errorMessage = "Не удалось удалить файл"
+        return
+    }
+
+    fileFolders.removeValue(forKey: file.lastPathComponent)
+    UserDefaults.standard.set(fileFolders, forKey: "playbook.fileFolders")
+
+    if player?.url == file {
+        player?.stop()
+        player = nil
+        isPlaying = false
+        fileName = "Аудиокнига не выбрана"
+    }
+
+    refreshLibrary()
+}
+
+private func deleteFolder(_ folder: String) {
+    folders.removeAll { $0 == folder }
+    for key in fileFolders.keys where fileFolders[key] == folder {
+        fileFolders.removeValue(forKey: key)
+    }
+    UserDefaults.standard.set(folders, forKey: "playbook.libraryFolders")
+    UserDefaults.standard.set(fileFolders, forKey: "playbook.fileFolders")
+    if selectedFolder == folder {
+        selectedFolder = nil
+    }
+}
 
 private func loadAudio(_ result: Result<[URL], Error>) {
         do {
