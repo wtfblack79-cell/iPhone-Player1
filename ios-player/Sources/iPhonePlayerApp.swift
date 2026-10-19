@@ -1,7 +1,7 @@
 import SwiftUI
+import UIKit
 import AVFoundation
 import UniformTypeIdentifiers
-import UIKit
 
 @main
 struct iPhonePlayerApp: App {
@@ -23,7 +23,6 @@ struct iPhonePlayerApp: App {
             let fileURL = URL(fileURLWithPath: path)
             print("Получен аудиофайл:", fileURL.path)
 
-            // Сохраняем путь, чтобы ContentView мог его подхватить
             UserDefaults.standard.set(path, forKey: "pendingAudioPath")
         }
     }
@@ -46,18 +45,20 @@ struct ContentView: View {
     @State private var selectedFolder: String? = nil
     @State private var fileFolders: [String: String] = [:]
     @State private var didAttemptRestore = false
-    @State private var sleepTimerTotal: Int = 0          // выбранный таймер в минутах, 0 = выключен
-    @State private var sleepTimerRemaining: TimeInterval = 0  // сколько осталось, секунды
-    @State private var sleepTimerStartedAt: Date?        // когда запустили
-    @State private var sleepTimerExpired = false         // сработал ли уже
-    @State private var sleepTimerStartedPosition: Double = 0 // позиция книги при старте таймера
-    @State private var isSeeking = false                 // пользователь держит ползунок
+    @State private var sleepTimerTotal: Int = 0
+    @State private var sleepTimerRemaining: TimeInterval = 0
+    @State private var sleepTimerStartedAt: Date?
+    @State private var sleepTimerExpired = false
+    @State private var sleepTimerStartedPosition: Double = 0
 
-    // Фоны
+    // Ползунок
+    @State private var isSeeking = false
+
+    // Фон
     @State private var homeBackground: UIImage?
     @State private var libraryBackground: UIImage?
-    @State private var showingBackgroundImporter = false
-    @State private var backgroundTarget = "home"         // "home" или "library"
+    @State private var showingBackgroundPicker = false
+    @State private var backgroundTarget = "home"
 
     private let timer = Timer.publish(
         every: 0.5,
@@ -80,7 +81,6 @@ struct ContentView: View {
                 playerView
             }
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
         .foregroundStyle(.white)
         .onAppear {
             loadBackgrounds()
@@ -138,11 +138,11 @@ struct ContentView: View {
             loadAudio(result)
         }
         .fileImporter(
-            isPresented: $showingBackgroundImporter,
+            isPresented: $showingBackgroundPicker,
             allowedContentTypes: [.image],
             allowsMultipleSelection: false
         ) { result in
-            handleBackgroundSelection(result)
+            importBackgroundImage(result)
         }
         .overlay(alignment: .topTrailing) {
             Menu {
@@ -161,17 +161,15 @@ struct ContentView: View {
 
                 Menu {
                     Button {
-                        backgroundTarget = "home"
-                        showingBackgroundImporter = true
+                        chooseBackground(for: "home")
                     } label: {
                         Label("Главный экран", systemImage: "iphone")
                     }
 
                     Button {
-                        backgroundTarget = "library"
-                        showingBackgroundImporter = true
+                        chooseBackground(for: "library")
                     } label: {
-                        Label("Библиотека", systemImage: "books.vertical")
+                        Label("Библиотека", systemImage: "books.vertical.fill")
                     }
                 } label: {
                     Label("Сменить фон", systemImage: "photo")
@@ -204,57 +202,152 @@ struct ContentView: View {
         }
     }
 
-    // Фон построен через Color.clear + overlay: overlay никогда не влияет
-    // на раскладку, а clipped обрезает всё, что вылезло за экран.
+    // MARK: - Фон
+
     private var background: some View {
+        ZStack {
+            if currentScreenIsLibrary {
+                backgroundLayer(image: libraryBackground)
+            } else {
+                backgroundLayer(image: homeBackground)
+            }
+        }
+        .ignoresSafeArea()
+    }
+
+    private func backgroundLayer(image: UIImage?) -> some View {
         Color.clear
             .overlay {
-                if currentScreenIsLibrary {
-                    if let libraryBackground {
-                        Image(uiImage: libraryBackground)
-                            .resizable()
-                            .scaledToFill()
-                    } else {
-                        defaultGradient
-                    }
+                if let image {
+                    Image(uiImage: image)
+                        .resizable()
+                        .scaledToFill()
                 } else {
-                    if let homeBackground {
-                        Image(uiImage: homeBackground)
-                            .resizable()
-                            .scaledToFill()
-                    } else {
-                        defaultGradient
+                    ZStack {
+                        LinearGradient(
+                            colors: [
+                                Color(red: 0.02, green: 0.04, blue: 0.13),
+                                Color(red: 0.04, green: 0.10, blue: 0.28),
+                                Color(red: 0.12, green: 0.04, blue: 0.24)
+                            ],
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
+                        )
+
+                        Circle()
+                            .fill(Color.cyan.opacity(0.18))
+                            .frame(width: 250, height: 250)
+                            .blur(radius: 80)
+                            .offset(x: -100, y: -180)
+
+                        Circle()
+                            .fill(Color.purple.opacity(0.20))
+                            .frame(width: 250, height: 250)
+                            .blur(radius: 80)
+                            .offset(x: 120, y: 200)
                     }
                 }
             }
             .clipped()
-            .ignoresSafeArea()
     }
 
-    private var defaultGradient: some View {
-        ZStack {
-            LinearGradient(
-                colors: [
-                    Color(red: 0.02, green: 0.04, blue: 0.13),
-                    Color(red: 0.04, green: 0.10, blue: 0.28),
-                    Color(red: 0.12, green: 0.04, blue: 0.24)
-                ],
-                startPoint: .topLeading,
-                endPoint: .bottomTrailing
-            )
+    private func chooseBackground(for screen: String) {
+        backgroundTarget = screen
+        showingBackgroundPicker = true
+    }
 
-            Circle()
-                .fill(Color.cyan.opacity(0.18))
-                .frame(width: 250, height: 250)
-                .blur(radius: 80)
-                .offset(x: -100, y: -180)
+    private func importBackgroundImage(_ result: Result<[URL], Error>) {
+        guard case .success(let urls) = result, let url = urls.first else { return }
 
-            Circle()
-                .fill(Color.purple.opacity(0.20))
-                .frame(width: 250, height: 250)
-                .blur(radius: 80)
-                .offset(x: 120, y: 200)
+        let didAccess = url.startAccessingSecurityScopedResource()
+        defer {
+            if didAccess {
+                url.stopAccessingSecurityScopedResource()
+            }
         }
+
+        guard let image = UIImage(contentsOfFile: url.path) else {
+            errorMessage = "Не удалось открыть картинку"
+            return
+        }
+
+        saveBackgroundImage(image, for: backgroundTarget)
+    }
+
+    private func saveBackgroundImage(_ image: UIImage, for screen: String) {
+        DispatchQueue.global(qos: .userInitiated).async {
+            // Уменьшаем картинку до 1600px по большей стороне:
+            // экрану этого хватает, а декодировать такое в разы быстрее
+            let maxDimension: CGFloat = 1600
+            var scaledImage = image
+            let maxSide = max(image.size.width, image.size.height)
+
+            if maxSide > maxDimension {
+                let scale = maxDimension / maxSide
+                let newSize = CGSize(
+                    width: image.size.width * scale,
+                    height: image.size.height * scale
+                )
+                let renderer = UIGraphicsImageRenderer(size: newSize)
+                scaledImage = renderer.image { _ in
+                    image.draw(in: CGRect(origin: .zero, size: newSize))
+                }
+            }
+
+            guard let data = scaledImage.jpegData(compressionQuality: 0.85) else { return }
+
+            let documents = FileManager.default.urls(
+                for: .documentDirectory,
+                in: .userDomainMask
+            )[0]
+
+            let name = screen == "home"
+                ? "playbook.background.home.jpg"
+                : "playbook.background.library.jpg"
+            let url = documents.appendingPathComponent(name)
+
+            try? data.write(to: url)
+
+            DispatchQueue.main.async {
+                if screen == "home" {
+                    homeBackground = scaledImage
+                } else {
+                    libraryBackground = scaledImage
+                }
+                refreshLibrary()
+            }
+        }
+    }
+
+    private func loadBackgrounds() {
+        DispatchQueue.global(qos: .userInitiated).async {
+            let documents = FileManager.default.urls(
+                for: .documentDirectory,
+                in: .userDomainMask
+            )[0]
+
+            func loadImage(_ name: String) -> UIImage? {
+                guard let data = try? Data(contentsOf: documents.appendingPathComponent(name)) else {
+                    return nil
+                }
+                return UIImage(data: data)
+            }
+
+            let home = loadImage("playbook.background.home.jpg")
+            let library = loadImage("playbook.background.library.jpg")
+
+            DispatchQueue.main.async {
+                homeBackground = home
+                libraryBackground = library
+            }
+        }
+    }
+
+    // MARK: - Плеер
+
+    private var percentCompleted: Int {
+        guard duration > 0 else { return 0 }
+        return Int((progress / duration * 100).rounded())
     }
 
     private var playerView: some View {
@@ -278,61 +371,61 @@ struct ContentView: View {
 
             Spacer(minLength: 20)
 
-            Spacer(minLength: 22)
-
-            VStack(spacing: 0) {
-                Spacer(minLength: 0)
-
-                VStack(spacing: 8) {
-                    SlimSlider(
-                        value: $progress,
-                        range: 0...max(duration, 1),
-                        onEditingChanged: { editing in
-                            isSeeking = editing
-                            if !editing {
-                                player?.currentTime = progress
-                            }
+            VStack(spacing: 8) {
+                SlimSlider(
+                    value: $progress,
+                    range: 0...max(duration, 1),
+                    onEditingChanged: { editing in
+                        isSeeking = editing
+                        if !editing {
+                            player?.currentTime = progress
+                            UserDefaults.standard.set(
+                                progress,
+                                forKey: "playbook.lastPosition"
+                            )
                         }
-                    )
-                    .disabled(player == nil)
-
-                    HStack {
-                        Text(timeString(progress))
-                            .font(.caption.monospacedDigit())
-                            .frame(maxWidth: .infinity, alignment: .leading)
-
-                        Text("\(percentCompleted)%")
-                            .font(.caption.monospacedDigit())
-                            .foregroundStyle(.white.opacity(0.7))
-                            .frame(maxWidth: .infinity, alignment: .center)
-
-                        Text(timeString(duration))
-                            .font(.caption.monospacedDigit())
-                            .frame(maxWidth: .infinity, alignment: .trailing)
                     }
-                }
-                .padding(.bottom, 20)
+                )
+                .disabled(player == nil)
 
-                HStack(spacing: 35) {
-                    seekButton(seconds: -15, symbol: "gobackward.15")
-                    Button {
-                        togglePlayback()
-                    } label: {
-                        Image(
-                            systemName: isPlaying
-                                ? "pause.circle.fill"
-                                : "play.circle.fill"
-                        )
-                        .font(.system(size: 64))
-                    }
-                    .disabled(player == nil)
-                    seekButton(seconds: 15, symbol: "goforward.15")
+                HStack {
+                    Text(timeString(progress))
+                        .font(.caption.monospacedDigit())
+                        .frame(maxWidth: .infinity, alignment: .leading)
+
+                    Text("\(percentCompleted)%")
+                        .font(.caption.monospacedDigit())
+                        .foregroundStyle(.white.opacity(0.7))
+                        .frame(maxWidth: .infinity, alignment: .center)
+
+                    Text(timeString(duration))
+                        .font(.caption.monospacedDigit())
+                        .frame(maxWidth: .infinity, alignment: .trailing)
                 }
-                .buttonStyle(.plain)
-                .frame(maxWidth: .infinity)
-                .padding(.bottom, 24)
             }
-            .frame(maxHeight: .infinity)
+            .padding(.horizontal, 4)
+            .padding(.bottom, 20)
+
+            HStack(spacing: 35) {
+                seekButton(seconds: -15, symbol: "gobackward.15")
+
+                Button {
+                    togglePlayback()
+                } label: {
+                    Image(
+                        systemName: isPlaying
+                            ? "pause.circle.fill"
+                            : "play.circle.fill"
+                    )
+                    .font(.system(size: 64))
+                }
+                .disabled(player == nil)
+
+                seekButton(seconds: 15, symbol: "goforward.15")
+            }
+            .buttonStyle(.plain)
+            .frame(maxWidth: .infinity)
+            .padding(.bottom, 24)
 
             if !errorMessage.isEmpty {
                 Text(errorMessage)
@@ -367,11 +460,6 @@ struct ContentView: View {
             .padding(.bottom, 4)
             .background(.clear)
         }
-    }
-
-    private var percentCompleted: Int {
-        guard duration > 0 else { return 0 }
-        return Int((progress / duration * 100).rounded())
     }
 
     private var speedButton: some View {
@@ -491,6 +579,8 @@ struct ContentView: View {
         }
     }
 
+    // MARK: - Библиотека
+
     private var libraryView: some View {
         VStack(spacing: 16) {
             Text("Библиотека")
@@ -588,6 +678,7 @@ struct ContentView: View {
                                     Label("Убрать из папки", systemImage: "folder")
                                 }
                             }
+
                             Button(role: .destructive) {
                                 deleteFile(file)
                             } label: {
@@ -654,66 +745,6 @@ struct ContentView: View {
                 .font(.system(size: 30))
         }
         .disabled(player == nil)
-    }
-
-    private func loadBackgrounds() {
-        let documents = FileManager.default.urls(
-            for: .documentDirectory,
-            in: .userDomainMask
-        )[0]
-
-        if let data = try? Data(contentsOf: documents.appendingPathComponent("playbook.background.home.jpg")),
-           let image = UIImage(data: data) {
-            homeBackground = image
-        }
-
-        if let data = try? Data(contentsOf: documents.appendingPathComponent("playbook.background.library.jpg")),
-           let image = UIImage(data: data) {
-            libraryBackground = image
-        }
-    }
-
-    private func handleBackgroundSelection(_ result: Result<[URL], Error>) {
-        do {
-            guard let sourceURL = try result.get().first else { return }
-
-            let accessGranted = sourceURL.startAccessingSecurityScopedResource()
-            defer {
-                if accessGranted {
-                    sourceURL.stopAccessingSecurityScopedResource()
-                }
-            }
-
-            guard let data = try? Data(contentsOf: sourceURL),
-                  let image = UIImage(data: data) else {
-                errorMessage = "Не удалось открыть картинку"
-                return
-            }
-
-            let documents = FileManager.default.urls(
-                for: .documentDirectory,
-                in: .userDomainMask
-            )[0]
-
-            let name = backgroundTarget == "home"
-                ? "playbook.background.home.jpg"
-                : "playbook.background.library.jpg"
-
-            let destination = documents.appendingPathComponent(name)
-
-            try? FileManager.default.removeItem(at: destination)
-            try image.jpegData(compressionQuality: 0.9)?.write(to: destination)
-
-            if backgroundTarget == "home" {
-                homeBackground = image
-            } else {
-                libraryBackground = image
-            }
-
-            errorMessage = ""
-        } catch {
-            errorMessage = "Не удалось сохранить фон: \(error.localizedDescription)"
-        }
     }
 
     private func loadFolders() {
@@ -1059,6 +1090,7 @@ struct ContentView: View {
 
             libraryFiles = files.filter {
                 audioExtensions.contains($0.pathExtension.lowercased())
+                    && !$0.lastPathComponent.hasPrefix("playbook.background")
             }
             .sorted {
                 $0.lastPathComponent.localizedCaseInsensitiveCompare(
@@ -1071,24 +1103,22 @@ struct ContentView: View {
     }
 }
 
-// Ползунок с маленьким кружком: линия обычной толщины, кружок 16 пунктов
+// Тонкий ползунок с маленьким кружком
 struct SlimSlider: View {
     @Binding var value: Double
     let range: ClosedRange<Double>
-    let onEditingChanged: (Bool) -> Void
+    var onEditingChanged: (Bool) -> Void = { _ in }
+    var knobSize: CGFloat = 16
+    var trackHeight: CGFloat = 6
 
     @State private var isDragging = false
 
-    private let knobSize: CGFloat = 16
-    private let trackHeight: CGFloat = 5
-
     var body: some View {
         GeometryReader { geo in
-            let width = geo.size.width
+            let width = max(geo.size.width, 1)
             let fraction = range.upperBound > range.lowerBound
                 ? min(max((value - range.lowerBound) / (range.upperBound - range.lowerBound), 0), 1)
                 : 0
-            let knobX = fraction * max(width - knobSize, 0)
 
             ZStack(alignment: .leading) {
                 Capsule()
@@ -1097,25 +1127,25 @@ struct SlimSlider: View {
 
                 Capsule()
                     .fill(Color(red: 0.20, green: 0.55, blue: 1.0))
-                    .frame(width: max(0, knobX + knobSize / 2), height: trackHeight)
+                    .frame(width: max(0, width * fraction), height: trackHeight)
 
                 Circle()
                     .fill(Color(red: 0.20, green: 0.55, blue: 1.0))
                     .frame(width: knobSize, height: knobSize)
-                    .offset(x: knobX)
+                    .offset(x: width * fraction - knobSize / 2)
             }
             .frame(height: knobSize)
-            .frame(maxWidth: .infinity)
             .contentShape(Rectangle())
             .gesture(
                 DragGesture(minimumDistance: 0)
-                    .onChanged { g in
+                    .onChanged { gesture in
                         if !isDragging {
                             isDragging = true
                             onEditingChanged(true)
                         }
-                        let f = min(max((g.location.x - knobSize / 2) / max(width - knobSize, 1), 0), 1)
-                        value = range.lowerBound + f * (range.upperBound - range.lowerBound)
+
+                        let newFraction = min(max(gesture.location.x / width, 0), 1)
+                        value = range.lowerBound + newFraction * (range.upperBound - range.lowerBound)
                     }
                     .onEnded { _ in
                         isDragging = false
@@ -1123,6 +1153,6 @@ struct SlimSlider: View {
                     }
             )
         }
-        .frame(height: 24)
+        .frame(height: knobSize)
     }
 }
