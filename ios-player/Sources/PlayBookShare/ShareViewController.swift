@@ -55,4 +55,5 @@ class ShareViewController: UIViewController {
                 if let type = audioTypes.first(where: {
                     attachment.hasItemConformingToTypeIdentifier($0)
                 }) {
-                    updateStatus("Получаю файл: 
+                    updateStatus("Получаю файл")
+ 
