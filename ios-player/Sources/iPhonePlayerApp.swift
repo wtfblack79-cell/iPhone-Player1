@@ -278,7 +278,7 @@ VStack(spacing: 0) {
         .safeAreaInset(edge: .bottom, spacing: 0) {
             VStack(spacing: 6) {
                 if sleepTimerExpired {
-                    Text("Таймер сработал — запущен в \(sleepTimerStartedText)")
+                    Text("Таймер сработал — книга стояла на \(timeString(sleepTimerStartedPosition))")
                         .font(.footnote)
                         .foregroundStyle(.white.opacity(0.8))
                         .transition(.opacity)
