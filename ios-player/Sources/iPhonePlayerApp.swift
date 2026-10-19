@@ -49,6 +49,8 @@ struct ContentView: View {
     @State private var sleepTimerRemaining: TimeInterval = 0  // сколько осталось, секунды
     @State private var sleepTimerStartedAt: Date?        // когда запустили
     @State private var sleepTimerExpired = false         // сработал ли уже
+    @State private var sleepTimerStartedPosition: Double = 0 // позиция книги при старте таймера
+
 
 
     private let timer = Timer.publish(
@@ -386,6 +388,7 @@ VStack(spacing: 0) {
             sleepTimerTotal = 0
             sleepTimerRemaining = 0
             sleepTimerStartedAt = nil
+            sleepTimerStartedPosition = 0
             sleepTimerExpired = false
             return
         }
@@ -393,6 +396,7 @@ VStack(spacing: 0) {
         sleepTimerTotal = minutes
         sleepTimerRemaining = TimeInterval(minutes * 60)
         sleepTimerStartedAt = Date()
+        sleepTimerStartedPosition = player?.currentTime ?? 0
         sleepTimerExpired = false
     }
 
