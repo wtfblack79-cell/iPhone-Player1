@@ -28,6 +28,10 @@ targets:
       properties:
         CFBundleDisplayName: PlayBook
         UILaunchScreen: {}
+        UIAppFonts:
+          - ShantellSans-Regular.ttf
+          - ShantellSans-Bold.ttf
+          - ShantellSans-Italic.ttf
         UIBackgroundModes:
           - audio
         LSSupportsOpeningDocumentsInPlace: false
