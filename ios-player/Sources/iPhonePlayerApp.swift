@@ -3,6 +3,18 @@ import UIKit
 import AVFoundation
 import UniformTypeIdentifiers
 
+enum AppFont {
+    static func regular(_ size: CGFloat) -> Font {
+        .custom("ShantellSans-Regular", size: size)
+    }
+    static func bold(_ size: CGFloat) -> Font {
+        .custom("ShantellSans-Bold", size: size)
+    }
+    static func italic(_ size: CGFloat) -> Font {
+        .custom("ShantellSans-Italic", size: size)
+    }
+}
+
 @main
 struct iPhonePlayerApp: App {
     var body: some Scene {
@@ -353,8 +365,7 @@ struct ContentView: View {
     private var playerView: some View {
         VStack(spacing: 0) {
             Text("PlayBook")
-                .font(.largeTitle)
-                .bold()
+                .font(AppFont.bold(34))
                 .frame(maxWidth: .infinity)
                 .padding(.top, 8)
 
@@ -363,7 +374,7 @@ struct ContentView: View {
                 .padding(.top, 4)
 
             Text(fileName)
-                .font(.headline)
+                .font(AppFont.regular(17))
                 .multilineTextAlignment(.center)
                 .lineLimit(3)
                 .padding(.horizontal, 12)
@@ -390,16 +401,16 @@ struct ContentView: View {
 
                 HStack {
                     Text(timeString(progress))
-                        .font(.caption.monospacedDigit())
+                        .font(AppFont.regular(13).monospacedDigit())
                         .frame(maxWidth: .infinity, alignment: .leading)
 
                     Text("\(percentCompleted)%")
-                        .font(.caption.monospacedDigit())
+                        .font(AppFont.regular(13).monospacedDigit())
                         .foregroundStyle(.white.opacity(0.7))
                         .frame(maxWidth: .infinity, alignment: .center)
 
                     Text(timeString(duration))
-                        .font(.caption.monospacedDigit())
+                        .font(AppFont.regular(13).monospacedDigit())
                         .frame(maxWidth: .infinity, alignment: .trailing)
                 }
             }
@@ -430,11 +441,9 @@ struct ContentView: View {
             if !errorMessage.isEmpty {
                 Text(errorMessage)
                     .foregroundStyle(.red)
-                    .font(.footnote)
+                    .font(AppFont.regular(13))
                     .padding(.top, 8)
             }
-
-            Spacer(minLength: 0)
         }
         .padding(.horizontal, 24)
         .padding(.top, 24)
@@ -443,7 +452,7 @@ struct ContentView: View {
             VStack(spacing: 6) {
                 if sleepTimerExpired {
                     Text("Таймер сработал — книга стояла на \(timeString(sleepTimerStartedPosition))")
-                        .font(.footnote)
+                        .font(AppFont.italic(13))
                         .foregroundStyle(.white.opacity(0.8))
                         .transition(.opacity)
                 }
@@ -474,7 +483,7 @@ struct ContentView: View {
         } label: {
             HStack(spacing: 5) {
                 Text("\(speed, specifier: "%g")×")
-                    .font(.system(size: 16, weight: .medium))
+                    .font(AppFont.regular(16))
 
                 Image(systemName: "chevron.up.chevron.down")
                     .font(.system(size: 10, weight: .medium))
@@ -528,7 +537,7 @@ struct ContentView: View {
 
                 if sleepTimerIsActive {
                     Text(sleepTimerCountdownText)
-                        .font(.system(size: 16, weight: .medium))
+                        .font(AppFont.regular(16))
                         .monospacedDigit()
                         .fixedSize()
                 }
@@ -584,11 +593,11 @@ struct ContentView: View {
     private var libraryView: some View {
         VStack(spacing: 16) {
             Text("Библиотека")
-                .font(.largeTitle)
-                .bold()
+                .font(AppFont.bold(34))
 
             if libraryFiles.isEmpty && folders.isEmpty {
                 Text("Аудиокниг пока нет")
+                    .font(AppFont.regular(17))
                     .foregroundStyle(.white.opacity(0.7))
             } else {
                 List {
@@ -597,6 +606,7 @@ struct ContentView: View {
                             self.selectedFolder = nil
                         } label: {
                             Label("Назад к библиотеке", systemImage: "chevron.left")
+                                .font(AppFont.regular(17))
                                 .foregroundStyle(.white)
                                 .frame(maxWidth: .infinity, alignment: .leading)
                         }
@@ -604,7 +614,7 @@ struct ContentView: View {
                         .listRowBackground(Color.white.opacity(0.08))
 
                         Text(selectedFolder)
-                            .font(.headline)
+                            .font(AppFont.bold(17))
                             .foregroundStyle(.white)
                             .listRowBackground(Color.white.opacity(0.08))
                     } else {
@@ -618,6 +628,7 @@ struct ContentView: View {
                                             Color(red: 0.85, green: 0.76, blue: 0.48)
                                         )
                                     Text(folder)
+                                        .font(AppFont.regular(17))
                                         .foregroundStyle(.white)
                                 }
                                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -646,6 +657,7 @@ struct ContentView: View {
                             currentScreenIsLibrary = false
                         } label: {
                             Text(file.deletingPathExtension().lastPathComponent)
+                                .font(AppFont.regular(17))
                                 .foregroundStyle(.white)
                         }
                         .listRowBackground(Color.white.opacity(0.08))
