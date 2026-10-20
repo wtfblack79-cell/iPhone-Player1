@@ -310,7 +310,7 @@ struct ContentView: View {
             title: "Скорость",
             options: speedOptions.map { value in
                 CustomMenuOption(
-                    title: "\(value, specifier: "%g")×",
+                    title: String(format: "%g×", Double(value)),
                     systemImage: "gauge"
                 ) {
                     speed = value
