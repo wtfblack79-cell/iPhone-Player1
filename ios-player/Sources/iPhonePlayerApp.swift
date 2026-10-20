@@ -3,6 +3,8 @@ import UIKit
 import AVFoundation
 import UniformTypeIdentifiers
 
+// MARK: - Шрифт приложения
+
 enum AppFont {
     static func regular(_ size: CGFloat) -> Font {
         .custom("ShantellSans-Regular", size: size)
@@ -15,6 +17,14 @@ enum AppFont {
     static func italic(_ size: CGFloat) -> Font {
         .custom("ShantellSans-Italic", size: size)
     }
+}
+
+// MARK: - Активное меню
+
+enum ActiveMenu: Hashable {
+    case options
+    case speed
+    case sleepTimer
 }
 
 @main
@@ -43,13 +53,6 @@ struct iPhonePlayerApp: App {
 }
 
 struct ContentView: View {
-
-    enum ActiveMenu {
-        case options
-        case speed
-        case sleep
-    }
-
     @State private var player: AVAudioPlayer?
     @State private var fileName = "Аудиокнига не выбрана"
     @State private var isPlaying = false
@@ -75,17 +78,17 @@ struct ContentView: View {
     // Ползунок
     @State private var isSeeking = false
 
-    // Меню
-    @State private var activeMenu: ActiveMenu? = nil
-
-    // Волна: сглаженный уровень громкости 0...1
-    @State private var smoothLevel: Double = 0
-
     // Фон
     @State private var homeBackground: UIImage?
     @State private var libraryBackground: UIImage?
     @State private var showingBackgroundPicker = false
     @State private var backgroundTarget = "home"
+
+    // Неоновая волна: сглаженный уровень громкости
+    @State private var smoothLevel: Double = 0
+
+    // Свои меню вместо системных
+    @State private var activeMenu: ActiveMenu? = nil
 
     private let timer = Timer.publish(
         every: 0.5,
@@ -93,7 +96,7 @@ struct ContentView: View {
         in: .common
     ).autoconnect()
 
-    // Быстрый таймер для волны: 20 раз в секунду
+    // Быстрый таймер для замера громкости волны
     private let waveTimer = Timer.publish(
         every: 0.05,
         on: .main,
@@ -103,6 +106,24 @@ struct ContentView: View {
     private let audioExtensions: Set<String> = [
         "mp3", "m4a", "m4b", "aac",
         "wav", "aiff", "caf", "flac"
+    ]
+
+    private let speedOptions: [(label: String, value: Float)] = [
+        ("0,75×", 0.75),
+        ("1×", 1.0),
+        ("1,25×", 1.25),
+        ("1,5×", 1.5),
+        ("2×", 2.0)
+    ]
+
+    private let sleepOptions: [(label: String, minutes: Int)] = [
+        ("Выкл", 0),
+        ("5 мин", 5),
+        ("10 мин", 10),
+        ("15 мин", 15),
+        ("30 мин", 30),
+        ("45 мин", 45),
+        ("1 час", 60)
     ]
 
     var body: some View {
@@ -183,7 +204,9 @@ struct ContentView: View {
         }
         .overlay(alignment: .topTrailing) {
             Button {
-                toggleMenu(.options)
+                withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) {
+                    activeMenu = activeMenu == .options ? nil : .options
+                }
             } label: {
                 Image(systemName: "ellipsis")
                     .font(.system(size: 24, weight: .bold))
@@ -215,222 +238,230 @@ struct ContentView: View {
         }
     }
 
-    // MARK: - Меню
+    // MARK: - Свои меню
 
-    private func toggleMenu(_ menu: ActiveMenu) {
-        withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) {
-            activeMenu = activeMenu == menu ? nil : menu
-        }
-    }
-
-    private func closeMenu() {
-        withAnimation(.easeOut(duration: 0.2)) {
-            activeMenu = nil
-        }
-    }
-
-    @ViewBuilder
     private var menuOverlay: some View {
-        if activeMenu != nil {
-            ZStack {
-                Color.black.opacity(0.35)
+        ZStack {
+            if activeMenu != nil {
+                Rectangle()
+                    .fill(Color.black.opacity(0.35))
                     .ignoresSafeArea()
                     .contentShape(Rectangle())
                     .onTapGesture {
-                        closeMenu()
+                        withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) {
+                            activeMenu = nil
+                        }
                     }
+                    .transition(.opacity)
+            }
 
-                switch activeMenu {
-                case .options:
+            switch activeMenu {
+            case .options:
+                VStack {
                     HStack {
                         Spacer()
-                        optionsMenu
+                        optionsPanel
+                            .padding(.top, 64)
+                            .padding(.trailing, 18)
                     }
-                    .padding(.top, 66)
-                    .padding(.trailing, 18)
-
-                case .speed:
-                    VStack {
-                        Spacer()
-                        HStack {
-                            speedMenu
-                            Spacer()
-                        }
-                    }
-                    .padding(.leading, 24)
-                    .padding(.bottom, 112)
-
-                case .sleep:
-                    VStack {
-                        Spacer()
-                        HStack {
-                            sleepMenu
-                            Spacer()
-                        }
-                    }
-                    .padding(.leading, 24)
-                    .padding(.bottom, 112)
-
-                case .none:
-                    EmptyView()
+                    Spacer()
                 }
+                .transition(
+                    .scale(scale: 0.92, anchor: .topTrailing)
+                        .combined(with: .opacity)
+                )
+            case .speed:
+                VStack {
+                    Spacer()
+                    HStack {
+                        speedPanel
+                        Spacer()
+                    }
+                    .padding(.leading, 24)
+                    .padding(.bottom, 110)
+                }
+                .transition(
+                    .scale(scale: 0.92, anchor: .bottomLeading)
+                        .combined(with: .opacity)
+                )
+            case .sleepTimer:
+                VStack {
+                    Spacer()
+                    HStack {
+                        sleepPanel
+                        Spacer()
+                    }
+                    .padding(.leading, 24)
+                    .padding(.bottom, 110)
+                }
+                .transition(
+                    .scale(scale: 0.92, anchor: .bottomLeading)
+                        .combined(with: .opacity)
+                )
+            case .none:
+                EmptyView()
             }
-            .transition(.opacity)
         }
+        .animation(.spring(response: 0.3, dampingFraction: 0.85), value: activeMenu)
     }
 
-    private func menuHeader(_ title: String) -> some View {
-        Text(title)
-            .font(AppFont.italic(13))
-            .foregroundStyle(.white.opacity(0.6))
-            .padding(.horizontal, 14)
-            .padding(.top, 10)
-            .padding(.bottom, 4)
-    }
-
-    private func menuContainer<Content: View>(
-        title: String? = nil,
+    private func menuPanel<Content: View>(
         @ViewBuilder content: () -> Content
     ) -> some View {
-        VStack(alignment: .leading, spacing: 0) {
-            if let title {
-                menuHeader(title)
-            }
+        VStack(alignment: .leading, spacing: 2) {
             content()
         }
+        .padding(.vertical, 8)
         .background(
-            RoundedRectangle(cornerRadius: 20, style: .continuous)
-                .fill(Color.black.opacity(0.55))
+            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                .fill(Color.black.opacity(0.35))
+        )
+        .background(
+            .ultraThinMaterial,
+            in: RoundedRectangle(cornerRadius: 18, style: .continuous)
         )
         .overlay(
-            RoundedRectangle(cornerRadius: 20, style: .continuous)
+            RoundedRectangle(cornerRadius: 18, style: .continuous)
                 .stroke(Color.white.opacity(0.25), lineWidth: 1)
         )
-        .transition(.scale(scale: 0.92).combined(with: .opacity))
+        .shadow(color: .black.opacity(0.35), radius: 16, y: 6)
     }
 
     private func menuRow(
         title: String,
-        systemImage: String? = nil,
+        icon: String,
         isSelected: Bool = false,
         action: @escaping () -> Void
     ) -> some View {
         Button {
+            withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) {
+                activeMenu = nil
+            }
             action()
         } label: {
             HStack(spacing: 10) {
-                if let systemImage {
-                    Image(systemName: systemImage)
-                        .font(.system(size: 15, weight: .medium))
-                        .foregroundStyle(.white.opacity(0.85))
-                        .frame(width: 22)
-                }
+                Image(systemName: icon)
+                    .font(.system(size: 16, weight: .medium))
+                    .frame(width: 24)
 
                 Text(title)
                     .font(AppFont.regular(17))
-                    .foregroundStyle(.white)
 
-                Spacer(minLength: 12)
+                Spacer()
 
                 if isSelected {
                     Image(systemName: "checkmark")
                         .font(.system(size: 14, weight: .semibold))
-                        .foregroundStyle(Color(red: 0.35, green: 0.8, blue: 0.95))
                 }
             }
+            .foregroundStyle(.white)
             .padding(.horizontal, 14)
-            .padding(.vertical, 11)
+            .padding(.vertical, 10)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
     }
 
-    private var optionsMenu: some View {
-        menuContainer {
-            VStack(alignment: .leading, spacing: 0) {
-                menuRow(title: "Дропнуть аудио", systemImage: "folder") {
-                    closeMenu()
-                    showingImporter = true
-                }
+    private var optionsPanel: some View {
+        menuPanel {
+            menuRow(title: "Дропнуть аудио", icon: "folder") {
+                showingImporter = true
+            }
 
-                menuRow(title: "Библиотека", systemImage: "books.vertical") {
-                    closeMenu()
-                    refreshLibrary()
-                    currentScreenIsLibrary = true
-                }
+            menuRow(title: "Библиотека", icon: "books.vertical") {
+                refreshLibrary()
+                currentScreenIsLibrary = true
+            }
 
-                menuHeader("Сменить фон")
+            Divider()
+                .background(Color.white.opacity(0.2))
+                .padding(.vertical, 4)
 
-                menuRow(title: "Главный экран", systemImage: "iphone") {
-                    closeMenu()
-                    chooseBackground(for: "home")
-                }
+            Text("Сменить фон")
+                .font(AppFont.italic(13))
+                .foregroundStyle(.white.opacity(0.55))
+                .padding(.horizontal, 14)
+                .padding(.top, 2)
+                .padding(.bottom, 4)
 
-                menuRow(title: "Библиотека", systemImage: "books.vertical.fill") {
-                    closeMenu()
-                    chooseBackground(for: "library")
+            menuRow(title: "Главный экран", icon: "iphone") {
+                chooseBackground(for: "home")
+            }
+
+            menuRow(title: "Библиотека", icon: "books.vertical.fill") {
+                chooseBackground(for: "library")
+            }
+        }
+        .frame(width: 250)
+    }
+
+    private var speedPanel: some View {
+        menuPanel {
+            Text("Скорость")
+                .font(AppFont.italic(13))
+                .foregroundStyle(.white.opacity(0.55))
+                .padding(.horizontal, 14)
+                .padding(.top, 2)
+                .padding(.bottom, 4)
+
+            ForEach(speedOptions, id: \.value) { option in
+                menuRow(
+                    title: option.label,
+                    icon: "waveform",
+                    isSelected: abs(speed - option.value) < 0.001
+                ) {
+                    speed = option.value
                 }
             }
         }
+        .frame(width: 190)
     }
 
-    private func setSpeed(_ value: Float) {
-        speed = value
-        closeMenu()
-    }
+    private var sleepPanel: some View {
+        menuPanel {
+            Text("Таймер сна")
+                .font(AppFont.italic(13))
+                .foregroundStyle(.white.opacity(0.55))
+                .padding(.horizontal, 14)
+                .padding(.top, 2)
+                .padding(.bottom, 4)
 
-    private var speedMenu: some View {
-        menuContainer(title: "Скорость") {
-            VStack(alignment: .leading, spacing: 0) {
-                menuRow(title: "0,75×", isSelected: speed == 0.75) {
-                    setSpeed(0.75)
-                }
-                menuRow(title: "1×", isSelected: speed == 1.0) {
-                    setSpeed(1.0)
-                }
-                menuRow(title: "1,25×", isSelected: speed == 1.25) {
-                    setSpeed(1.25)
-                }
-                menuRow(title: "1,5×", isSelected: speed == 1.5) {
-                    setSpeed(1.5)
-                }
-                menuRow(title: "2×", isSelected: speed == 2.0) {
-                    setSpeed(2.0)
+            ForEach(sleepOptions, id: \.minutes) { option in
+                menuRow(
+                    title: option.label,
+                    icon: "moon.zzz",
+                    isSelected: sleepTimerTotal == option.minutes
+                ) {
+                    sleepTimerTotal = option.minutes
                 }
             }
         }
+        .frame(width: 190)
     }
 
-    private func setSleep(_ minutes: Int) {
-        setSleepTimer(minutes: minutes)
-        closeMenu()
-    }
+    // MARK: - Неоновая волна
 
-    private var sleepMenu: some View {
-        menuContainer(title: "Таймер сна") {
-            VStack(alignment: .leading, spacing: 0) {
-                menuRow(title: "Выкл", isSelected: sleepTimerTotal == 0) {
-                    setSleep(0)
-                }
-                menuRow(title: "5 мин", isSelected: sleepTimerTotal == 5) {
-                    setSleep(5)
-                }
-                menuRow(title: "10 мин", isSelected: sleepTimerTotal == 10) {
-                    setSleep(10)
-                }
-                menuRow(title: "15 мин", isSelected: sleepTimerTotal == 15) {
-                    setSleep(15)
-                }
-                menuRow(title: "30 мин", isSelected: sleepTimerTotal == 30) {
-                    setSleep(30)
-                }
-                menuRow(title: "45 мин", isSelected: sleepTimerTotal == 45) {
-                    setSleep(45)
-                }
-                menuRow(title: "1 час", isSelected: sleepTimerTotal == 60) {
-                    setSleep(60)
-                }
-            }
+    private func updateWaveLevel() {
+        guard let player else {
+            smoothLevel *= 0.9
+            return
+        }
+
+        guard player.isPlaying else {
+            // На паузе волна плавно затухает до «дыхания»
+            smoothLevel *= 0.92
+            return
+        }
+
+        player.updateMeters()
+        let db = Double(player.averagePower(forChannel: 0))
+        let raw = max(0, min(1, pow(10.0, db / 20.0)))
+        let shaped = pow(raw, 1.4)
+
+        if shaped > smoothLevel {
+            smoothLevel += (shaped - smoothLevel) * 0.55
+        } else {
+            smoothLevel += (shaped - smoothLevel) * 0.12
         }
     }
 
@@ -575,40 +606,6 @@ struct ContentView: View {
         }
     }
 
-    // MARK: - Волна
-
-    private func updateWaveLevel() {
-        guard let player else {
-            smoothLevel = max(0, smoothLevel - 0.05)
-            return
-        }
-
-        if player.isMeteringEnabled {
-            player.updateMeters()
-        }
-
-        if player.isPlaying {
-            // AVAudioPlayer отдаёт уровень в децибелах, обычно от -160 до 0
-            let db = player.averagePower(forChannel: 0)
-
-            // Переводим в 0...1: -60 дБ — тишина, 0 дБ — максимум
-            let normalized = max(0, min(1, (db + 60) / 60))
-
-            // Степень больше 1 делает тишину спокойнее, а пики выразительнее
-            let shaped = pow(normalized, 1.4)
-
-            // Быстрая атака на громких звуках, мягкий спад на тихих
-            if shaped > smoothLevel {
-                smoothLevel += (shaped - smoothLevel) * 0.55
-            } else {
-                smoothLevel += (shaped - smoothLevel) * 0.12
-            }
-        } else {
-            // На паузе волна плавно гаснет до лёгкого «дыхания»
-            smoothLevel = max(0, smoothLevel - 0.05)
-        }
-    }
-
     // MARK: - Плеер
 
     private var percentCompleted: Int {
@@ -624,15 +621,14 @@ struct ContentView: View {
                 .padding(.top, 8)
 
             NeonWaveView(level: smoothLevel)
-                .frame(height: 96)
-                .padding(.top, 4)
+                .padding(.top, 6)
 
             Text(fileName)
                 .font(AppFont.regular(17))
                 .multilineTextAlignment(.center)
                 .lineLimit(3)
                 .padding(.horizontal, 12)
-                .padding(.top, 18)
+                .padding(.top, 14)
 
             Spacer(minLength: 20)
 
@@ -727,7 +723,9 @@ struct ContentView: View {
 
     private var speedButton: some View {
         Button {
-            toggleMenu(.speed)
+            withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) {
+                activeMenu = activeMenu == .speed ? nil : .speed
+            }
         } label: {
             HStack(spacing: 5) {
                 Text("\(speed, specifier: "%g")×")
@@ -771,7 +769,9 @@ struct ContentView: View {
 
     private var sleepTimerButton: some View {
         Button {
-            toggleMenu(.sleep)
+            withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) {
+                activeMenu = activeMenu == .sleepTimer ? nil : .sleepTimer
+            }
         } label: {
             HStack(spacing: 5) {
                 Image(systemName: "moon.zzz")
@@ -779,8 +779,7 @@ struct ContentView: View {
 
                 if sleepTimerIsActive {
                     Text(sleepTimerCountdownText)
-                        .font(AppFont.regular(16))
-                        .monospacedDigit()
+                        .font(AppFont.regular(16).monospacedDigit())
                         .fixedSize()
                 }
             }
@@ -1123,9 +1122,10 @@ struct ContentView: View {
             try AVAudioSession.sharedInstance().setActive(true)
 
             let newPlayer = try AVAudioPlayer(contentsOf: destination)
-            newPlayer.isMeteringEnabled = true
             newPlayer.enableRate = true
+            newPlayer.isMeteringEnabled = true
             newPlayer.prepareToPlay()
+            newPlayer.updateMeters()
 
             player?.stop()
             player = newPlayer
@@ -1359,6 +1359,87 @@ struct ContentView: View {
     }
 }
 
+// MARK: - Неоновая волна
+
+struct NeonWaveView: View {
+    let level: Double
+
+    var body: some View {
+        TimelineView(.animation(minimumInterval: 1.0 / 30.0)) { timeline in
+            Canvas { context, size in
+                let t = timeline.date.timeIntervalSinceReferenceDate
+                let active = max(level, 0.06)
+                let amplitude = active * Double(size.height) * 0.42
+
+                let waves: [(color: Color, thickness: CGFloat, amp: Double, freq: Double, speed: Double, phase: Double)] = [
+                    (Color(red: 0.30, green: 0.90, blue: 1.00), 3.0, 1.00, 6.0, 2.6, 0.0),
+                    (Color(red: 0.30, green: 0.90, blue: 1.00), 1.5, 0.60, 9.0, 3.4, 1.8),
+                    (Color(red: 0.72, green: 0.45, blue: 1.00), 2.5, 0.90, 7.0, 3.0, 2.6),
+                    (Color(red: 0.72, green: 0.45, blue: 1.00), 1.5, 0.55, 10.5, 3.9, 4.4)
+                ]
+
+                for wave in waves {
+                    let path = wavePath(
+                        in: size,
+                        amplitude: CGFloat(amplitude * wave.amp),
+                        freq: wave.freq,
+                        phase: t * wave.speed + wave.phase
+                    )
+
+                    // Свечение
+                    context.filter = .blur(radius: 7)
+                    context.blendMode = .plusLighter
+                    context.stroke(
+                        path,
+                        with: .color(wave.color.opacity(0.55)),
+                        style: StrokeStyle(lineWidth: wave.thickness * 2.2, lineCap: .round)
+                    )
+
+                    // Чёткая линия
+                    context.filter = nil
+                    context.blendMode = .normal
+                    context.stroke(
+                        path,
+                        with: .color(wave.color.opacity(0.95)),
+                        style: StrokeStyle(lineWidth: wave.thickness, lineCap: .round)
+                    )
+                }
+            }
+        }
+        .frame(height: 96)
+        .drawingGroup()
+    }
+
+    private func wavePath(
+        in size: CGSize,
+        amplitude: CGFloat,
+        freq: Double,
+        phase: Double
+    ) -> Path {
+        var path = Path()
+        let mid = size.height / 2
+        let steps = 90
+
+        for i in 0...steps {
+            let relative = Double(i) / Double(steps)
+            let x = relative * Double(size.width)
+            let edge = pow(sin(relative * .pi), 0.8)
+            let s1 = sin(relative * freq * .pi * 2 + phase)
+            let s2 = sin(relative * freq * .pi * 2 * 0.63 - phase * 0.7)
+            let y = mid + (s1 * 0.65 + s2 * 0.35) * amplitude * CGFloat(edge)
+            let point = CGPoint(x: CGFloat(x), y: y)
+
+            if i == 0 {
+                path.move(to: point)
+            } else {
+                path.addLine(to: point)
+            }
+        }
+
+        return path
+    }
+}
+
 // Тонкий ползунок с маленьким кружком
 struct SlimSlider: View {
     @Binding var value: Double
@@ -1410,100 +1491,5 @@ struct SlimSlider: View {
             )
         }
         .frame(height: knobSize)
-    }
-}
-
-// Неоновая звуковая волна: реагирует на уровень громкости аудио
-struct NeonWaveView: View {
-    var level: Double
-
-    var body: some View {
-        TimelineView(.animation) { timeline in
-            Canvas { ctx, size in
-                var graphics = ctx
-                let t = timeline.date.timeIntervalSinceReferenceDate
-
-                // Лёгкое «дыхание» на паузе, чтобы волна не умирала совсем
-                let breath = 0.5 + 0.5 * sin(t * 1.2)
-                let intensity = 0.06 + 0.04 * breath + level
-
-                let lines: [(Color, Double, Double, Double, CGFloat)] = [
-                    (Color(red: 0.20, green: 0.85, blue: 0.92), 0.0, 2.4, 1.1, 2.0),
-                    (Color(red: 0.55, green: 0.30, blue: 0.98), 1.7, 2.1, 1.35, 1.7),
-                    (Color(red: 0.30, green: 0.65, blue: 1.00), 3.4, 1.8, 1.6, 2.0),
-                    (Color(red: 0.80, green: 0.45, blue: 1.00), 5.1, 1.5, 1.85, 1.7)
-                ]
-
-                for (index, line) in lines.enumerated() {
-                    drawWave(
-                        &graphics,
-                        size: size,
-                        time: t,
-                        amplitude: size.height * (0.16 + 0.03 * Double(index)) * intensity,
-                        color: line.0,
-                        phaseOffset: line.1,
-                        speed: line.2,
-                        frequency: line.3,
-                        lineWidth: line.4
-                    )
-                }
-            }
-        }
-    }
-
-    private func drawWave(
-        _ context: inout GraphicsContext,
-        size: CGSize,
-        time t: Double,
-        amplitude: CGFloat,
-        color: Color,
-        phaseOffset: Double,
-        speed: Double,
-        frequency: Double,
-        lineWidth: CGFloat
-    ) {
-        let midY = size.height / 2
-        let steps = 64
-        var path = Path()
-
-        for step in 0...steps {
-            let p = Double(step) / Double(steps)
-            let x = size.width * CGFloat(p)
-
-            // Затухание к краям, чтобы волна не упиралась в границы
-            let envelope = pow(sin(.pi * p), 0.7)
-
-            // Основная волна плюс лёгкая вторая гармоника для «живости»
-            let y = midY
-                + CGFloat(
-                    sin(p * frequency * 2 * .pi + t * speed + phaseOffset) * 0.75
-                        + sin(p * frequency * 3.7 * 2 * .pi + t * speed * 1.6 + phaseOffset * 2.0) * 0.25
-                ) * amplitude * envelope
-
-            if step == 0 {
-                path.move(to: CGPoint(x: x, y: y))
-            } else {
-                path.addLine(to: CGPoint(x: x, y: y))
-            }
-        }
-
-        // Свечение: размытая копия линии под основной
-        var glow = context
-        glow.blendMode = .plusLighter
-        glow.addFilter(.blur(radius: 10))
-        glow.stroke(
-            path,
-            with: .color(color.opacity(0.45)),
-            style: StrokeStyle(lineWidth: lineWidth + 5, lineCap: .round)
-        )
-
-        // Основная линия
-        context.blendMode = .plusLighter
-        context.stroke(
-            path,
-            with: .color(color.opacity(0.95)),
-            style: StrokeStyle(lineWidth: lineWidth, lineCap: .round)
-        )
-        context.blendMode = .normal
     }
 }
