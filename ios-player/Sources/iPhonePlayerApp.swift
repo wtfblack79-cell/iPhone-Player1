@@ -3,7 +3,6 @@ import UIKit
 import AVFoundation
 import UniformTypeIdentifiers
 
-// Шрифт приложения — Shantell Sans
 enum AppFont {
     static func regular(_ size: CGFloat) -> Font {
         .custom("ShantellSans-Regular", size: size)
@@ -16,13 +15,6 @@ enum AppFont {
     static func italic(_ size: CGFloat) -> Font {
         .custom("ShantellSans-Italic", size: size)
     }
-}
-
-// Какое самодельное меню сейчас открыто
-enum ActiveMenu {
-    case main
-    case speed
-    case sleep
 }
 
 @main
@@ -50,16 +42,14 @@ struct iPhonePlayerApp: App {
     }
 }
 
-// Пункт самодельного меню
-struct MenuOption: Identifiable {
-    let id: String
-    let title: String
-    let systemImage: String?
-    let isSelected: Bool
-    let action: () -> Void
-}
-
 struct ContentView: View {
+
+    enum ActiveMenu {
+        case options
+        case speed
+        case sleep
+    }
+
     @State private var player: AVAudioPlayer?
     @State private var fileName = "Аудиокнига не выбрана"
     @State private var isPlaying = false
@@ -85,17 +75,27 @@ struct ContentView: View {
     // Ползунок
     @State private var isSeeking = false
 
+    // Меню
+    @State private var activeMenu: ActiveMenu? = nil
+
+    // Волна: сглаженный уровень громкости 0...1
+    @State private var smoothLevel: Double = 0
+
     // Фон
     @State private var homeBackground: UIImage?
     @State private var libraryBackground: UIImage?
     @State private var showingBackgroundPicker = false
     @State private var backgroundTarget = "home"
 
-    // Самодельные меню
-    @State private var activeMenu: ActiveMenu? = nil
-
     private let timer = Timer.publish(
         every: 0.5,
+        on: .main,
+        in: .common
+    ).autoconnect()
+
+    // Быстрый таймер для волны: 20 раз в секунду
+    private let waveTimer = Timer.publish(
+        every: 0.05,
         on: .main,
         in: .common
     ).autoconnect()
@@ -164,6 +164,9 @@ struct ContentView: View {
                 )
             }
         }
+        .onReceive(waveTimer) { _ in
+            updateWaveLevel()
+        }
         .fileImporter(
             isPresented: $showingImporter,
             allowedContentTypes: [.audio, .mp3, .mpeg4Audio],
@@ -180,7 +183,7 @@ struct ContentView: View {
         }
         .overlay(alignment: .topTrailing) {
             Button {
-                activeMenu = .main
+                toggleMenu(.options)
             } label: {
                 Image(systemName: "ellipsis")
                     .font(.system(size: 24, weight: .bold))
@@ -188,7 +191,6 @@ struct ContentView: View {
                     .background(Color.white.opacity(0.12))
                     .clipShape(Circle())
             }
-            .buttonStyle(.plain)
             .padding(.top, 12)
             .padding(.trailing, 18)
         }
@@ -209,182 +211,227 @@ struct ContentView: View {
             }
         }
         .overlay {
-            if activeMenu != nil {
-                menuOverlay
-            }
-        }
-        .animation(.easeOut(duration: 0.18), value: activeMenu)
-    }
-
-    // MARK: - Самодельное меню
-
-    private var panelAlignment: Alignment {
-        activeMenu == .main ? .topTrailing : .bottomLeading
-    }
-
-    private var panelAnchor: UnitPoint {
-        activeMenu == .main ? .topTrailing : .bottomLeading
-    }
-
-    private var panelEdgeInsets: EdgeInsets {
-        if activeMenu == .main {
-            return EdgeInsets(top: 70, leading: 60, bottom: 0, trailing: 18)
-        } else {
-            return EdgeInsets(top: 0, leading: 24, bottom: 86, trailing: 60)
+            menuOverlay
         }
     }
 
-    private var activeMenuTitle: String? {
-        switch activeMenu {
-        case .speed: return "Скорость"
-        case .sleep: return "Таймер сна"
-        default: return nil
+    // MARK: - Меню
+
+    private func toggleMenu(_ menu: ActiveMenu) {
+        withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) {
+            activeMenu = activeMenu == menu ? nil : menu
         }
     }
 
-    private var activeMenuOptions: [MenuOption] {
-        switch activeMenu {
-        case .main:
-            return [
-                MenuOption(
-                    id: "import",
-                    title: "Дропнуть аудио",
-                    systemImage: "folder",
-                    isSelected: false,
-                    action: { showingImporter = true }
-                ),
-                MenuOption(
-                    id: "library",
-                    title: "Библиотека",
-                    systemImage: "books.vertical",
-                    isSelected: false,
-                    action: {
-                        refreshLibrary()
-                        currentScreenIsLibrary = true
-                    }
-                ),
-                MenuOption(
-                    id: "bgHome",
-                    title: "Фон: главный экран",
-                    systemImage: "iphone",
-                    isSelected: false,
-                    action: { chooseBackground(for: "home") }
-                ),
-                MenuOption(
-                    id: "bgLibrary",
-                    title: "Фон: библиотека",
-                    systemImage: "books.vertical.fill",
-                    isSelected: false,
-                    action: { chooseBackground(for: "library") }
-                )
-            ]
-        case .speed:
-            return [0.75, 1.0, 1.25, 1.5, 2.0].map { value in
-                MenuOption(
-                    id: String(value),
-                    title: speedLabel(value),
-                    systemImage: nil,
-                    isSelected: speed == value,
-                    action: {
-                        speed = value
-                        player?.rate = value
-                    }
-                )
-            }
-        case .sleep:
-            return [0, 5, 10, 15, 30, 45, 60].map { minutes in
-                MenuOption(
-                    id: String(minutes),
-                    title: sleepLabel(minutes),
-                    systemImage: nil,
-                    isSelected: sleepTimerTotal == minutes,
-                    action: {
-                        sleepTimerTotal = minutes
-                        setSleepTimer(minutes: minutes)
-                    }
-                )
-            }
-        default:
-            return []
+    private func closeMenu() {
+        withAnimation(.easeOut(duration: 0.2)) {
+            activeMenu = nil
         }
     }
 
+    @ViewBuilder
     private var menuOverlay: some View {
-        ZStack {
-            Color.black.opacity(0.35)
-                .ignoresSafeArea()
-                .onTapGesture {
-                    activeMenu = nil
-                }
-
-            VStack(alignment: .leading, spacing: 0) {
-                if let title = activeMenuTitle {
-                    Text(title)
-                        .font(AppFont.italic(13))
-                        .foregroundStyle(.white.opacity(0.55))
-                        .padding(.horizontal, 16)
-                        .padding(.top, 12)
-                        .padding(.bottom, 4)
-                }
-
-                ForEach(activeMenuOptions) { option in
-                    Button {
-                        option.action()
-                        activeMenu = nil
-                    } label: {
-                        HStack(spacing: 10) {
-                            if let icon = option.systemImage {
-                                Image(systemName: icon)
-                                    .font(.system(size: 16, weight: .medium))
-                                    .frame(width: 24)
-                            }
-
-                            Text(option.title)
-                                .font(AppFont.regular(17))
-
-                            Spacer()
-
-                            if option.isSelected {
-                                Image(systemName: "checkmark")
-                                    .font(.system(size: 14, weight: .bold))
-                            }
-                        }
-                        .foregroundStyle(.white)
-                        .padding(.horizontal, 16)
-                        .padding(.vertical, 12)
-                        .contentShape(Rectangle())
+        if activeMenu != nil {
+            ZStack {
+                Color.black.opacity(0.35)
+                    .ignoresSafeArea()
+                    .contentShape(Rectangle())
+                    .onTapGesture {
+                        closeMenu()
                     }
-                    .buttonStyle(.plain)
+
+                switch activeMenu {
+                case .options:
+                    HStack {
+                        Spacer()
+                        optionsMenu
+                    }
+                    .padding(.top, 66)
+                    .padding(.trailing, 18)
+
+                case .speed:
+                    VStack {
+                        Spacer()
+                        HStack {
+                            speedMenu
+                            Spacer()
+                        }
+                    }
+                    .padding(.leading, 24)
+                    .padding(.bottom, 112)
+
+                case .sleep:
+                    VStack {
+                        Spacer()
+                        HStack {
+                            sleepMenu
+                            Spacer()
+                        }
+                    }
+                    .padding(.leading, 24)
+                    .padding(.bottom, 112)
+
+                case .none:
+                    EmptyView()
                 }
             }
-            .frame(width: 260, alignment: .leading)
-            .background(
-                RoundedRectangle(cornerRadius: 24)
-                    .fill(Color(red: 0.05, green: 0.06, blue: 0.15).opacity(0.9))
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: 24)
-                    .stroke(Color.white.opacity(0.22), lineWidth: 1)
-            )
-            .shadow(color: .black.opacity(0.45), radius: 24)
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: panelAlignment)
-            .padding(panelEdgeInsets)
-            .transition(
-                .opacity.combined(with: .scale(scale: 0.9, anchor: panelAnchor))
-            )
+            .transition(.opacity)
         }
     }
 
-    private func speedLabel(_ value: Float) -> String {
-        let text = String(format: "%g", value)
-            .replacingOccurrences(of: ".", with: ",")
-        return "\(text)×"
+    private func menuHeader(_ title: String) -> some View {
+        Text(title)
+            .font(AppFont.italic(13))
+            .foregroundStyle(.white.opacity(0.6))
+            .padding(.horizontal, 14)
+            .padding(.top, 10)
+            .padding(.bottom, 4)
     }
 
-    private func sleepLabel(_ minutes: Int) -> String {
-        if minutes == 0 { return "Выкл" }
-        if minutes == 60 { return "1 час" }
-        return "\(minutes) мин"
+    private func menuContainer<Content: View>(
+        title: String? = nil,
+        @ViewBuilder content: () -> Content
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 0) {
+            if let title {
+                menuHeader(title)
+            }
+            content()
+        }
+        .background(
+            RoundedRectangle(cornerRadius: 20, style: .continuous)
+                .fill(Color.black.opacity(0.55))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 20, style: .continuous)
+                .stroke(Color.white.opacity(0.25), lineWidth: 1)
+        )
+        .transition(.scale(scale: 0.92).combined(with: .opacity))
+    }
+
+    private func menuRow(
+        title: String,
+        systemImage: String? = nil,
+        isSelected: Bool = false,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button {
+            action()
+        } label: {
+            HStack(spacing: 10) {
+                if let systemImage {
+                    Image(systemName: systemImage)
+                        .font(.system(size: 15, weight: .medium))
+                        .foregroundStyle(.white.opacity(0.85))
+                        .frame(width: 22)
+                }
+
+                Text(title)
+                    .font(AppFont.regular(17))
+                    .foregroundStyle(.white)
+
+                Spacer(minLength: 12)
+
+                if isSelected {
+                    Image(systemName: "checkmark")
+                        .font(.system(size: 14, weight: .semibold))
+                        .foregroundStyle(Color(red: 0.35, green: 0.8, blue: 0.95))
+                }
+            }
+            .padding(.horizontal, 14)
+            .padding(.vertical, 11)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+    }
+
+    private var optionsMenu: some View {
+        menuContainer {
+            VStack(alignment: .leading, spacing: 0) {
+                menuRow(title: "Дропнуть аудио", systemImage: "folder") {
+                    closeMenu()
+                    showingImporter = true
+                }
+
+                menuRow(title: "Библиотека", systemImage: "books.vertical") {
+                    closeMenu()
+                    refreshLibrary()
+                    currentScreenIsLibrary = true
+                }
+
+                menuHeader("Сменить фон")
+
+                menuRow(title: "Главный экран", systemImage: "iphone") {
+                    closeMenu()
+                    chooseBackground(for: "home")
+                }
+
+                menuRow(title: "Библиотека", systemImage: "books.vertical.fill") {
+                    closeMenu()
+                    chooseBackground(for: "library")
+                }
+            }
+        }
+    }
+
+    private func setSpeed(_ value: Float) {
+        speed = value
+        closeMenu()
+    }
+
+    private var speedMenu: some View {
+        menuContainer(title: "Скорость") {
+            VStack(alignment: .leading, spacing: 0) {
+                menuRow(title: "0,75×", isSelected: speed == 0.75) {
+                    setSpeed(0.75)
+                }
+                menuRow(title: "1×", isSelected: speed == 1.0) {
+                    setSpeed(1.0)
+                }
+                menuRow(title: "1,25×", isSelected: speed == 1.25) {
+                    setSpeed(1.25)
+                }
+                menuRow(title: "1,5×", isSelected: speed == 1.5) {
+                    setSpeed(1.5)
+                }
+                menuRow(title: "2×", isSelected: speed == 2.0) {
+                    setSpeed(2.0)
+                }
+            }
+        }
+    }
+
+    private func setSleep(_ minutes: Int) {
+        setSleepTimer(minutes: minutes)
+        closeMenu()
+    }
+
+    private var sleepMenu: some View {
+        menuContainer(title: "Таймер сна") {
+            VStack(alignment: .leading, spacing: 0) {
+                menuRow(title: "Выкл", isSelected: sleepTimerTotal == 0) {
+                    setSleep(0)
+                }
+                menuRow(title: "5 мин", isSelected: sleepTimerTotal == 5) {
+                    setSleep(5)
+                }
+                menuRow(title: "10 мин", isSelected: sleepTimerTotal == 10) {
+                    setSleep(10)
+                }
+                menuRow(title: "15 мин", isSelected: sleepTimerTotal == 15) {
+                    setSleep(15)
+                }
+                menuRow(title: "30 мин", isSelected: sleepTimerTotal == 30) {
+                    setSleep(30)
+                }
+                menuRow(title: "45 мин", isSelected: sleepTimerTotal == 45) {
+                    setSleep(45)
+                }
+                menuRow(title: "1 час", isSelected: sleepTimerTotal == 60) {
+                    setSleep(60)
+                }
+            }
+        }
     }
 
     // MARK: - Фон
@@ -528,6 +575,40 @@ struct ContentView: View {
         }
     }
 
+    // MARK: - Волна
+
+    private func updateWaveLevel() {
+        guard let player else {
+            smoothLevel = max(0, smoothLevel - 0.05)
+            return
+        }
+
+        if player.isMeteringEnabled {
+            player.updateMeters()
+        }
+
+        if player.isPlaying {
+            // AVAudioPlayer отдаёт уровень в децибелах, обычно от -160 до 0
+            let db = player.averagePower(forChannel: 0)
+
+            // Переводим в 0...1: -60 дБ — тишина, 0 дБ — максимум
+            let normalized = max(0, min(1, (db + 60) / 60))
+
+            // Степень больше 1 делает тишину спокойнее, а пики выразительнее
+            let shaped = pow(normalized, 1.4)
+
+            // Быстрая атака на громких звуках, мягкий спад на тихих
+            if shaped > smoothLevel {
+                smoothLevel += (shaped - smoothLevel) * 0.55
+            } else {
+                smoothLevel += (shaped - smoothLevel) * 0.12
+            }
+        } else {
+            // На паузе волна плавно гаснет до лёгкого «дыхания»
+            smoothLevel = max(0, smoothLevel - 0.05)
+        }
+    }
+
     // MARK: - Плеер
 
     private var percentCompleted: Int {
@@ -542,12 +623,12 @@ struct ContentView: View {
                 .frame(maxWidth: .infinity)
                 .padding(.top, 8)
 
-            Image(systemName: "waveform")
-                .font(.system(size: 22))
+            NeonWaveView(level: smoothLevel)
+                .frame(height: 96)
                 .padding(.top, 4)
 
             Text(fileName)
-                .font(AppFont.bold(20))
+                .font(AppFont.regular(17))
                 .multilineTextAlignment(.center)
                 .lineLimit(3)
                 .padding(.horizontal, 12)
@@ -646,15 +727,16 @@ struct ContentView: View {
 
     private var speedButton: some View {
         Button {
-            activeMenu = .speed
+            toggleMenu(.speed)
         } label: {
             HStack(spacing: 5) {
-                Text(speedLabel(speed))
-                    .font(AppFont.bold(16))
+                Text("\(speed, specifier: "%g")×")
+                    .font(AppFont.regular(16))
 
                 Image(systemName: "chevron.up.chevron.down")
                     .font(.system(size: 10, weight: .medium))
             }
+            .foregroundStyle(.white)
             .padding(.horizontal, 16)
             .padding(.vertical, 10)
             .overlay {
@@ -663,6 +745,9 @@ struct ContentView: View {
             }
         }
         .buttonStyle(.plain)
+        .onChange(of: speed) { newSpeed in
+            player?.rate = newSpeed
+        }
     }
 
     private var sleepTimerIsActive: Bool {
@@ -686,7 +771,7 @@ struct ContentView: View {
 
     private var sleepTimerButton: some View {
         Button {
-            activeMenu = .sleep
+            toggleMenu(.sleep)
         } label: {
             HStack(spacing: 5) {
                 Image(systemName: "moon.zzz")
@@ -694,7 +779,8 @@ struct ContentView: View {
 
                 if sleepTimerIsActive {
                     Text(sleepTimerCountdownText)
-                        .font(AppFont.regular(16).monospacedDigit())
+                        .font(AppFont.regular(16))
+                        .monospacedDigit()
                         .fixedSize()
                 }
             }
@@ -708,6 +794,9 @@ struct ContentView: View {
             .animation(.spring(response: 0.35, dampingFraction: 0.8), value: sleepTimerIsActive)
         }
         .buttonStyle(.plain)
+        .onChange(of: sleepTimerTotal) { newMinutes in
+            setSleepTimer(minutes: newMinutes)
+        }
     }
 
     private func setSleepTimer(minutes: Int) {
@@ -751,7 +840,7 @@ struct ContentView: View {
 
             if libraryFiles.isEmpty && folders.isEmpty {
                 Text("Аудиокниг пока нет")
-                    .font(AppFont.regular(15))
+                    .font(AppFont.regular(17))
                     .foregroundStyle(.white.opacity(0.7))
             } else {
                 List {
@@ -1034,6 +1123,7 @@ struct ContentView: View {
             try AVAudioSession.sharedInstance().setActive(true)
 
             let newPlayer = try AVAudioPlayer(contentsOf: destination)
+            newPlayer.isMeteringEnabled = true
             newPlayer.enableRate = true
             newPlayer.prepareToPlay()
 
@@ -1320,5 +1410,100 @@ struct SlimSlider: View {
             )
         }
         .frame(height: knobSize)
+    }
+}
+
+// Неоновая звуковая волна: реагирует на уровень громкости аудио
+struct NeonWaveView: View {
+    var level: Double
+
+    var body: some View {
+        TimelineView(.animation) { timeline in
+            Canvas { ctx, size in
+                var graphics = ctx
+                let t = timeline.date.timeIntervalSinceReferenceDate
+
+                // Лёгкое «дыхание» на паузе, чтобы волна не умирала совсем
+                let breath = 0.5 + 0.5 * sin(t * 1.2)
+                let intensity = 0.06 + 0.04 * breath + level
+
+                let lines: [(Color, Double, Double, Double, CGFloat)] = [
+                    (Color(red: 0.20, green: 0.85, blue: 0.92), 0.0, 2.4, 1.1, 2.0),
+                    (Color(red: 0.55, green: 0.30, blue: 0.98), 1.7, 2.1, 1.35, 1.7),
+                    (Color(red: 0.30, green: 0.65, blue: 1.00), 3.4, 1.8, 1.6, 2.0),
+                    (Color(red: 0.80, green: 0.45, blue: 1.00), 5.1, 1.5, 1.85, 1.7)
+                ]
+
+                for (index, line) in lines.enumerated() {
+                    drawWave(
+                        &graphics,
+                        size: size,
+                        time: t,
+                        amplitude: size.height * (0.16 + 0.03 * Double(index)) * intensity,
+                        color: line.0,
+                        phaseOffset: line.1,
+                        speed: line.2,
+                        frequency: line.3,
+                        lineWidth: line.4
+                    )
+                }
+            }
+        }
+    }
+
+    private func drawWave(
+        _ context: inout GraphicsContext,
+        size: CGSize,
+        time t: Double,
+        amplitude: CGFloat,
+        color: Color,
+        phaseOffset: Double,
+        speed: Double,
+        frequency: Double,
+        lineWidth: CGFloat
+    ) {
+        let midY = size.height / 2
+        let steps = 64
+        var path = Path()
+
+        for step in 0...steps {
+            let p = Double(step) / Double(steps)
+            let x = size.width * CGFloat(p)
+
+            // Затухание к краям, чтобы волна не упиралась в границы
+            let envelope = pow(sin(.pi * p), 0.7)
+
+            // Основная волна плюс лёгкая вторая гармоника для «живости»
+            let y = midY
+                + CGFloat(
+                    sin(p * frequency * 2 * .pi + t * speed + phaseOffset) * 0.75
+                        + sin(p * frequency * 3.7 * 2 * .pi + t * speed * 1.6 + phaseOffset * 2.0) * 0.25
+                ) * amplitude * envelope
+
+            if step == 0 {
+                path.move(to: CGPoint(x: x, y: y))
+            } else {
+                path.addLine(to: CGPoint(x: x, y: y))
+            }
+        }
+
+        // Свечение: размытая копия линии под основной
+        var glow = context
+        glow.blendMode = .plusLighter
+        glow.addFilter(.blur(radius: 10))
+        glow.stroke(
+            path,
+            with: .color(color.opacity(0.45)),
+            style: StrokeStyle(lineWidth: lineWidth + 5, lineCap: .round)
+        )
+
+        // Основная линия
+        context.blendMode = .plusLighter
+        context.stroke(
+            path,
+            with: .color(color.opacity(0.95)),
+            style: StrokeStyle(lineWidth: lineWidth, lineCap: .round)
+        )
+        context.blendMode = .normal
     }
 }
