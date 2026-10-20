@@ -42,6 +42,8 @@ struct ContentView: View {
     @State private var showingImporter = false
     @State private var libraryFiles: [URL] = []
     @State private var currentScreenIsLibrary = false
+    @State private var currentScreenIsSettings = false
+    @State private var isDesignSectionExpanded = false
     @State private var errorMessage = ""
     @State private var showingCreateFolder = false
     @State private var newFolderName = ""
@@ -54,8 +56,6 @@ struct ContentView: View {
     @State private var sleepTimerStartedAt: Date?
     @State private var sleepTimerExpired = false
     @State private var sleepTimerStartedPosition: Double = 0
-
-    // Закладка: позиция последнего включения таймера сна
     @State private var sleepBookmarkPosition: Double = 0
     @State private var sleepBookmarkFileName: String = ""
 
@@ -101,6 +101,8 @@ struct ContentView: View {
 
             if currentScreenIsLibrary {
                 libraryView
+            } else if currentScreenIsSettings {
+                settingsView
             } else {
                 playerView
             }
@@ -108,7 +110,13 @@ struct ContentView: View {
         .foregroundStyle(.white)
         .onAppear {
             loadBackgrounds()
-            loadSleepBookmark()
+
+            sleepBookmarkPosition = UserDefaults.standard.double(
+                forKey: "playbook.sleepBookmarkPosition"
+            )
+            sleepBookmarkFileName = UserDefaults.standard.string(
+                forKey: "playbook.sleepBookmarkFileName"
+            ) ?? ""
 
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
                 let sharedDefaults = UserDefaults(suiteName: "group.com.personal.iphoneplayer")
@@ -188,12 +196,31 @@ struct ContentView: View {
             .padding(.trailing, 18)
         }
         .overlay(alignment: .topLeading) {
-            if currentScreenIsLibrary {
+            if currentScreenIsLibrary || currentScreenIsSettings {
                 Button {
-                    currentScreenIsLibrary = false
+                    if currentScreenIsSettings {
+                        currentScreenIsSettings = false
+                        isDesignSectionExpanded = false
+                    } else {
+                        currentScreenIsLibrary = false
+                    }
                 } label: {
                     Image(systemName: "arrow.left")
                         .font(.system(size: 24, weight: .bold))
+                        .frame(width: 44, height: 44)
+                        .background(Color.white.opacity(0.12))
+                        .clipShape(Circle())
+                }
+                .buttonStyle(.plain)
+                .padding(.top, 12)
+                .padding(.leading, 18)
+            } else {
+                Button {
+                    refreshLibrary()
+                    currentScreenIsLibrary = true
+                } label: {
+                    Image(systemName: "books.vertical")
+                        .font(.system(size: 22, weight: .medium))
                         .frame(width: 44, height: 44)
                         .background(Color.white.opacity(0.12))
                         .clipShape(Circle())
@@ -277,22 +304,10 @@ struct ContentView: View {
         CustomMenu(
             title: nil,
             options: [
-                CustomMenuOption(title: "Дропнуть аудио", systemImage: "folder") {
+                CustomMenuOption(title: "Настройки", systemImage: "gearshape") {
                     activeMenu = .none
-                    showingImporter = true
-                },
-                CustomMenuOption(title: "Библиотека", systemImage: "books.vertical") {
-                    activeMenu = .none
-                    refreshLibrary()
-                    currentScreenIsLibrary = true
-                },
-                CustomMenuOption(title: "Сменить фон · Главный экран", systemImage: "iphone") {
-                    activeMenu = .none
-                    chooseBackground(for: "home")
-                },
-                CustomMenuOption(title: "Сменить фон · Библиотека", systemImage: "books.vertical.fill") {
-                    activeMenu = .none
-                    chooseBackground(for: "library")
+                    isDesignSectionExpanded = false
+                    currentScreenIsSettings = true
                 }
             ],
             selectedIndex: nil,
@@ -360,17 +375,12 @@ struct ContentView: View {
             title: "Закладка",
             options: [
                 CustomMenuOption(
-                    title: hasSleepBookmark
-                        ? "Таймер сна был включён в \(timeString(sleepBookmarkPosition))"
-                        : "Пока нет сохранённой позиции",
+                    title: sleepBookmarkFileName.isEmpty
+                        ? "Пока нет сохранённой позиции"
+                        : "Таймер сна был включён в \(timeString(sleepBookmarkPosition))",
                     systemImage: "bookmark"
                 ) {
-                    if hasSleepBookmark {
-                        goToSleepBookmark()
-                    }
-                    withAnimation(.easeOut(duration: 0.2)) {
-                        activeMenu = .none
-                    }
+                    goToSleepBookmark()
                 }
             ],
             selectedIndex: nil,
@@ -387,7 +397,7 @@ struct ContentView: View {
 
     private var background: some View {
         ZStack {
-            if currentScreenIsLibrary {
+            if currentScreenIsLibrary || currentScreenIsSettings {
                 backgroundLayer(image: libraryBackground)
             } else {
                 backgroundLayer(image: homeBackground)
@@ -695,31 +705,6 @@ struct ContentView: View {
         .buttonStyle(.plain)
     }
 
-    private var hasSleepBookmark: Bool {
-        !sleepBookmarkFileName.isEmpty
-    }
-
-    private var bookmarkButton: some View {
-        Button {
-            withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) {
-                activeMenu = activeMenu == .bookmark ? .none : .bookmark
-            }
-        } label: {
-            HStack(spacing: 5) {
-                Image(systemName: "bookmark")
-                    .font(.system(size: 16, weight: .medium))
-            }
-            .foregroundStyle(.white)
-            .padding(.horizontal, 14)
-            .frame(height: 44)
-            .overlay {
-                RoundedRectangle(cornerRadius: 18)
-                    .stroke(Color.white.opacity(0.8), lineWidth: 1)
-            }
-        }
-        .buttonStyle(.plain)
-    }
-
     private var sleepTimerIsActive: Bool {
         sleepTimerTotal > 0 && sleepTimerRemaining > 0
     }
@@ -760,6 +745,56 @@ struct ContentView: View {
         .buttonStyle(.plain)
     }
 
+    private var bookmarkButton: some View {
+        Button {
+            withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) {
+                activeMenu = activeMenu == .bookmark ? .none : .bookmark
+            }
+        } label: {
+            HStack(spacing: 5) {
+                Image(systemName: "bookmark")
+                    .font(.system(size: 16, weight: .medium))
+            }
+            .foregroundStyle(.white)
+            .padding(.horizontal, 14)
+            .frame(height: 44)
+            .overlay {
+                RoundedRectangle(cornerRadius: 18)
+                    .stroke(Color.white.opacity(0.8), lineWidth: 1)
+            }
+        }
+        .buttonStyle(.plain)
+    }
+
+    private func goToSleepBookmark() {
+        withAnimation(.easeOut(duration: 0.2)) {
+            activeMenu = .none
+        }
+
+        guard !sleepBookmarkFileName.isEmpty else {
+            errorMessage = "Пока нет сохранённой позиции"
+            return
+        }
+
+        guard let player else {
+            errorMessage = "Сначала выберите аудиокнигу"
+            return
+        }
+
+        guard fileName == sleepBookmarkFileName else {
+            errorMessage = "Закладка относится к другой книге"
+            return
+        }
+
+        let target = max(0, min(sleepBookmarkPosition, player.duration))
+
+        player.currentTime = target
+        progress = target
+
+        UserDefaults.standard.set(target, forKey: "playbook.lastPosition")
+        UserDefaults.standard.set(fileName, forKey: "playbook.lastFileName")
+    }
+
     private func setSleepTimer(minutes: Int) {
         if minutes <= 0 {
             sleepTimerTotal = 0
@@ -776,7 +811,18 @@ struct ContentView: View {
         sleepTimerStartedPosition = player?.currentTime ?? 0
         sleepTimerExpired = false
 
-        saveSleepBookmark()
+        // Закладка: позиция последнего включения таймера сна
+        sleepBookmarkPosition = sleepTimerStartedPosition
+        sleepBookmarkFileName = fileName
+
+        UserDefaults.standard.set(
+            sleepBookmarkPosition,
+            forKey: "playbook.sleepBookmarkPosition"
+        )
+        UserDefaults.standard.set(
+            sleepBookmarkFileName,
+            forKey: "playbook.sleepBookmarkFileName"
+        )
     }
 
     private func tickSleepTimer() {
@@ -792,58 +838,6 @@ struct ContentView: View {
             player.pause()
             isPlaying = false
         }
-    }
-
-    private func saveSleepBookmark() {
-        guard let player else { return }
-
-        sleepBookmarkPosition = player.currentTime
-        sleepBookmarkFileName = player.url?.lastPathComponent ?? ""
-
-        UserDefaults.standard.set(
-            sleepBookmarkPosition,
-            forKey: "playbook.sleepBookmarkPosition"
-        )
-        UserDefaults.standard.set(
-            sleepBookmarkFileName,
-            forKey: "playbook.sleepBookmarkFileName"
-        )
-    }
-
-    private func loadSleepBookmark() {
-        sleepBookmarkPosition = UserDefaults.standard.double(
-            forKey: "playbook.sleepBookmarkPosition"
-        )
-        sleepBookmarkFileName = UserDefaults.standard.string(
-            forKey: "playbook.sleepBookmarkFileName"
-        ) ?? ""
-    }
-
-    private func goToSleepBookmark() {
-        guard hasSleepBookmark else {
-            errorMessage = "Пока нет сохранённой позиции"
-            return
-        }
-
-        guard let player else {
-            errorMessage = "Сначала выберите аудиокнигу"
-            return
-        }
-
-        guard sleepBookmarkFileName == player.url?.lastPathComponent else {
-            errorMessage = "Закладка относится к другой книге"
-            return
-        }
-
-        let newTime = max(0, min(sleepBookmarkPosition, player.duration))
-        player.currentTime = newTime
-        progress = newTime
-        errorMessage = ""
-
-        UserDefaults.standard.set(
-            newTime,
-            forKey: "playbook.lastPosition"
-        )
     }
 
     // MARK: - Библиотека
@@ -1005,6 +999,71 @@ struct ContentView: View {
         .onAppear {
             loadFolders()
         }
+    }
+
+    private var settingsView: some View {
+        VStack(spacing: 16) {
+            Text("Настройки")
+                .font(AppFont.bold(34))
+
+            Button {
+                withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) {
+                    isDesignSectionExpanded.toggle()
+                }
+            } label: {
+                HStack {
+                    Text("ДИЗАЙН")
+                        .font(AppFont.regular(17))
+                        .foregroundStyle(.white)
+
+                    Spacer()
+
+                    Image(systemName: isDesignSectionExpanded ? "chevron.down" : "chevron.right")
+                        .font(.system(size: 13, weight: .medium))
+                        .foregroundStyle(.white.opacity(0.7))
+                }
+                .padding(.horizontal, 16)
+                .padding(.vertical, 12)
+                .background(
+                    RoundedRectangle(cornerRadius: 12)
+                        .fill(Color.white.opacity(0.08))
+                )
+            }
+            .buttonStyle(.plain)
+
+            if isDesignSectionExpanded {
+                VStack(spacing: 2) {
+                    designRow("Фон главного экрана")
+                    designRow("Фон библиотеки")
+                    designRow("Фон настроек")
+                }
+                .transition(.opacity)
+            }
+
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 24)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    private func designRow(_ title: String) -> some View {
+        Button {
+        } label: {
+            HStack {
+                Text(title)
+                    .font(AppFont.regular(16))
+                    .foregroundStyle(.white)
+
+                Spacer()
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 12)
+            .background(
+                RoundedRectangle(cornerRadius: 12)
+                    .fill(Color.white.opacity(0.08))
+            )
+        }
+        .buttonStyle(.plain)
     }
 
     private func seekButton(seconds: Double, symbol: String) -> some View {
