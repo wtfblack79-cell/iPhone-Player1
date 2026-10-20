@@ -68,7 +68,7 @@ final class PlayTheme: ObservableObject {
 
     static func luminance(of color: Color) -> Double {
         var red: CGFloat = 0, green: CGFloat = 0, blue: CGFloat = 0, alpha: CGFloat = 0
-        UIColor(color).getRed(&red, &green, &blue, &alpha)
+        UIColor(color).getRed(&red, green: &green, blue: &blue, alpha: &alpha)
         return 0.299 * Double(red) + 0.587 * Double(green) + 0.114 * Double(blue)
     }
 
@@ -76,7 +76,7 @@ final class PlayTheme: ObservableObject {
     // чтобы текст и значки оставались читаемыми
     static func readable(_ color: Color) -> Color {
         var red: CGFloat = 0, green: CGFloat = 0, blue: CGFloat = 0, alpha: CGFloat = 0
-        UIColor(color).getRed(&red, &green, &blue, &alpha)
+        UIColor(color).getRed(&red, green: &green, blue: &blue, alpha: &alpha)
 
         let luma = 0.299 * Double(red) + 0.587 * Double(green) + 0.114 * Double(blue)
         let minLuminance = 0.62
@@ -92,8 +92,8 @@ final class PlayTheme: ObservableObject {
 
         var ar: CGFloat = 0, ag: CGFloat = 0, ab: CGFloat = 0, aa: CGFloat = 0
         var br: CGFloat = 0, bg: CGFloat = 0, bb: CGFloat = 0, ba: CGFloat = 0
-        UIColor(a).getRed(&ar, &ag, &ab, &aa)
-        UIColor(b).getRed(&br, &bg, &bb, &ba)
+        UIColor(a).getRed(&ar, green: &ag, blue: &ab, alpha: &aa)
+        UIColor(b).getRed(&br, green: &bg, blue: &bb, alpha: &ba)
 
         return Color(
             red: Double(ar + (br - ar) * t),
@@ -125,7 +125,7 @@ extension Color {
 
     func toHex() -> String {
         var red: CGFloat = 0, green: CGFloat = 0, blue: CGFloat = 0, alpha: CGFloat = 0
-        UIColor(self).getRed(&red, &green, &blue, &alpha)
+        UIColor(self).getRed(&red, green: &green, blue: &blue, alpha: &alpha)
 
         return String(
             format: "#%02X%02X%02X",
