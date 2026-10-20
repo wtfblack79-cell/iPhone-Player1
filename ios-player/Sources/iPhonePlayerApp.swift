@@ -20,22 +20,6 @@ struct iPhonePlayerApp: App {
     var body: some Scene {
         WindowGroup {
             ContentView()
-                .onOpenURL { url in
-                    handleIncomingURL(url)
-                }
-        }
-    }
-
-    private func handleIncomingURL(_ url: URL) {
-        guard url.scheme == "playbook" else { return }
-
-        if let path = UserDefaults(suiteName: "group.com.personal.iphoneplayer")?
-            .string(forKey: "lastSharedAudioPath") {
-
-            let fileURL = URL(fileURLWithPath: path)
-            print("Получен аудиофайл:", fileURL.path)
-
-            UserDefaults.standard.set(path, forKey: "pendingAudioPath")
         }
     }
 }
@@ -678,13 +662,6 @@ struct ContentView: View {
         return String(format: "%d:%02d", total / 60, total % 60)
     }
 
-    private var sleepTimerStartedText: String {
-        guard let date = sleepTimerStartedAt else { return "" }
-        let formatter = DateFormatter()
-        formatter.dateFormat = "HH:mm"
-        return formatter.string(from: date)
-    }
-
     private var sleepTimerButton: some View {
         Button {
             withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) {
@@ -1064,12 +1041,7 @@ struct ContentView: View {
             }
         }
 
-        let allowedExtensions: Set<String> = [
-            "mp3", "m4a", "m4b", "aac",
-            "wav", "aiff", "caf", "flac"
-        ]
-
-        guard allowedExtensions.contains(url.pathExtension.lowercased()) else {
+        guard audioExtensions.contains(url.pathExtension.lowercased()) else {
             errorMessage = "Этот формат аудио не поддерживается."
             return
         }
@@ -1121,12 +1093,7 @@ struct ContentView: View {
             }
         }
 
-        let allowedExtensions: Set<String> = [
-            "mp3", "m4a", "m4b", "aac",
-            "wav", "aiff", "caf", "flac"
-        ]
-
-        guard allowedExtensions.contains(url.pathExtension.lowercased()) else {
+        guard audioExtensions.contains(url.pathExtension.lowercased()) else {
             errorMessage = "Этот формат аудио не поддерживается."
             return
         }
