@@ -15,6 +15,127 @@ enum AppFont {
     }
 }
 
+// MARK: - Тема (единый источник цветов всего интерфейса)
+
+final class PlayTheme: ObservableObject {
+    static let shared = PlayTheme()
+
+    // Фирменный цвет PlayBook по умолчанию
+    static let defaultAccent = Color(red: 0.20, green: 0.55, blue: 1.0)
+
+    // Готовые цветовые варианты
+    static let presets: [Color] = [
+        Color(red: 0.20, green: 0.55, blue: 1.00), // фирменный синий
+        Color(red: 0.30, green: 0.85, blue: 0.95), // циан
+        Color(red: 0.30, green: 0.90, blue: 0.60), // мята
+        Color(red: 0.55, green: 0.90, blue: 0.40), // зелёный
+        Color(red: 0.95, green: 0.80, blue: 0.35), // золотистый
+        Color(red: 1.00, green: 0.60, blue: 0.35), // оранжевый
+        Color(red: 0.95, green: 0.45, blue: 0.55), // розовый
+        Color(red: 0.80, green: 0.45, blue: 1.00), // сиреневый
+        Color(red: 0.55, green: 0.55, blue: 0.95), // индиго
+        Color(red: 1.00, green: 0.35, blue: 0.35)  // красный
+    ]
+
+    @Published var accentColor: Color
+
+    private init() {
+        if let hex = UserDefaults.standard.string(forKey: "playbook.accentColor"),
+           let color = Color(hex: hex) {
+            accentColor = color
+        } else {
+            accentColor = Self.defaultAccent
+        }
+    }
+
+    func saveAccent() {
+        UserDefaults.standard.set(accentColor.toHex(), forKey: "playbook.accentColor")
+    }
+
+    func resetAccent() {
+        UserDefaults.standard.removeObject(forKey: "playbook.accentColor")
+        accentColor = Self.defaultAccent
+    }
+
+    var isDefaultAccent: Bool {
+        accentColor.toHex() == Self.defaultAccent.toHex()
+    }
+
+    // Вариант цвета, гарантированно читаемый на тёмном фоне
+    var ui: Color {
+        Self.readable(accentColor)
+    }
+
+    static func luminance(of color: Color) -> Double {
+        var red: CGFloat = 0, green: CGFloat = 0, blue: CGFloat = 0, alpha: CGFloat = 0
+        UIColor(color).getRed(&red, &green, &blue, &alpha)
+        return 0.299 * Double(red) + 0.587 * Double(green) + 0.114 * Double(blue)
+    }
+
+    // Если цвет слишком тёмный — осветляем до минимальной яркости,
+    // чтобы текст и значки оставались читаемыми
+    static func readable(_ color: Color) -> Color {
+        var red: CGFloat = 0, green: CGFloat = 0, blue: CGFloat = 0, alpha: CGFloat = 0
+        UIColor(color).getRed(&red, &green, &blue, &alpha)
+
+        let luma = 0.299 * Double(red) + 0.587 * Double(green) + 0.114 * Double(blue)
+        let minLuminance = 0.62
+
+        guard luma < minLuminance else { return color }
+
+        let t = (minLuminance - luma) / (1.0 - luma)
+        return mix(color, .white, t)
+    }
+
+    static func mix(_ a: Color, _ b: Color, _ t: Double) -> Color {
+        let t = CGFloat(min(max(t, 0), 1))
+
+        var ar: CGFloat = 0, ag: CGFloat = 0, ab: CGFloat = 0, aa: CGFloat = 0
+        var br: CGFloat = 0, bg: CGFloat = 0, bb: CGFloat = 0, ba: CGFloat = 0
+        UIColor(a).getRed(&ar, &ag, &ab, &aa)
+        UIColor(b).getRed(&br, &bg, &bb, &ba)
+
+        return Color(
+            red: Double(ar + (br - ar) * t),
+            green: Double(ag + (bg - ag) * t),
+            blue: Double(ab + (bb - ab) * t)
+        )
+    }
+}
+
+// MARK: - HEX-представление цвета
+
+extension Color {
+    init?(hex: String) {
+        var value = hex.trimmingCharacters(in: .whitespacesAndNewlines)
+        if value.hasPrefix("#") {
+            value.removeFirst()
+        }
+
+        guard value.count == 6, let rgb = UInt64(value, radix: 16) else {
+            return nil
+        }
+
+        self.init(
+            red: Double((rgb >> 16) & 0xFF) / 255.0,
+            green: Double((rgb >> 8) & 0xFF) / 255.0,
+            blue: Double(rgb & 0xFF) / 255.0
+        )
+    }
+
+    func toHex() -> String {
+        var red: CGFloat = 0, green: CGFloat = 0, blue: CGFloat = 0, alpha: CGFloat = 0
+        UIColor(self).getRed(&red, &green, &blue, &alpha)
+
+        return String(
+            format: "#%02X%02X%02X",
+            Int(round(red * 255)),
+            Int(round(green * 255)),
+            Int(round(blue * 255))
+        )
+    }
+}
+
 @main
 struct iPhonePlayerApp: App {
     var body: some Scene {
@@ -33,6 +154,8 @@ enum ActiveMenu {
 }
 
 struct ContentView: View {
+    @ObservedObject private var theme = PlayTheme.shared
+
     @State private var player: AVAudioPlayer?
     @State private var fileName = "Аудиокнига не выбрана"
     @State private var isPlaying = false
@@ -43,6 +166,7 @@ struct ContentView: View {
     @State private var libraryFiles: [URL] = []
     @State private var currentScreenIsLibrary = false
     @State private var currentScreenIsSettings = false
+    @State private var currentScreenIsColor = false
     @State private var isDesignSectionExpanded = false
     @State private var errorMessage = ""
     @State private var showingCreateFolder = false
@@ -65,6 +189,7 @@ struct ContentView: View {
     // Фон
     @State private var homeBackground: UIImage?
     @State private var libraryBackground: UIImage?
+    @State private var settingsBackground: UIImage?
     @State private var showingBackgroundPicker = false
     @State private var backgroundTarget = "home"
 
@@ -99,7 +224,9 @@ struct ContentView: View {
         ZStack {
             background
 
-            if currentScreenIsLibrary {
+            if currentScreenIsColor {
+                colorSettingsView
+            } else if currentScreenIsLibrary {
                 libraryView
             } else if currentScreenIsSettings {
                 settingsView
@@ -188,6 +315,7 @@ struct ContentView: View {
             } label: {
                 Image(systemName: "ellipsis")
                     .font(.system(size: 24, weight: .bold))
+                    .foregroundStyle(theme.ui)
                     .frame(width: 44, height: 44)
                     .background(Color.white.opacity(0.12))
                     .clipShape(Circle())
@@ -196,10 +324,27 @@ struct ContentView: View {
             .padding(.trailing, 18)
         }
         .overlay(alignment: .topLeading) {
-            if currentScreenIsLibrary || currentScreenIsSettings {
+            if currentScreenIsColor {
+                Button {
+                    withAnimation(.easeOut(duration: 0.2)) {
+                        currentScreenIsColor = false
+                    }
+                } label: {
+                    Image(systemName: "arrow.left")
+                        .font(.system(size: 24, weight: .bold))
+                        .foregroundStyle(theme.ui)
+                        .frame(width: 44, height: 44)
+                        .background(Color.white.opacity(0.12))
+                        .clipShape(Circle())
+                }
+                .buttonStyle(.plain)
+                .padding(.top, 12)
+                .padding(.leading, 18)
+            } else if currentScreenIsLibrary || currentScreenIsSettings {
                 Button {
                     if currentScreenIsSettings {
                         currentScreenIsSettings = false
+                        currentScreenIsColor = false
                         isDesignSectionExpanded = false
                     } else {
                         currentScreenIsLibrary = false
@@ -207,6 +352,7 @@ struct ContentView: View {
                 } label: {
                     Image(systemName: "arrow.left")
                         .font(.system(size: 24, weight: .bold))
+                        .foregroundStyle(theme.ui)
                         .frame(width: 44, height: 44)
                         .background(Color.white.opacity(0.12))
                         .clipShape(Circle())
@@ -221,6 +367,7 @@ struct ContentView: View {
                 } label: {
                     Image(systemName: "books.vertical")
                         .font(.system(size: 22, weight: .medium))
+                        .foregroundStyle(theme.ui)
                         .frame(width: 44, height: 44)
                         .background(Color.white.opacity(0.12))
                         .clipShape(Circle())
@@ -233,6 +380,10 @@ struct ContentView: View {
         .overlay {
             menuOverlay
         }
+        .onChange(of: theme.accentColor) { _ in
+            theme.saveAccent()
+        }
+        .environmentObject(theme)
     }
 
     // MARK: - Меню
@@ -307,6 +458,7 @@ struct ContentView: View {
                 CustomMenuOption(title: "Настройки", systemImage: "gearshape") {
                     activeMenu = .none
                     isDesignSectionExpanded = false
+                    currentScreenIsColor = false
                     currentScreenIsSettings = true
                 }
             ],
@@ -395,9 +547,22 @@ struct ContentView: View {
 
     // MARK: - Фон
 
+    private func backgroundFileName(for screen: String) -> String {
+        switch screen {
+        case "library":
+            return "playbook.background.library.jpg"
+        case "settings":
+            return "playbook.background.settings.jpg"
+        default:
+            return "playbook.background.home.jpg"
+        }
+    }
+
     private var background: some View {
         ZStack {
-            if currentScreenIsLibrary || currentScreenIsSettings {
+            if currentScreenIsColor || currentScreenIsSettings {
+                backgroundLayer(image: settingsBackground)
+            } else if currentScreenIsLibrary {
                 backgroundLayer(image: libraryBackground)
             } else {
                 backgroundLayer(image: homeBackground)
@@ -492,21 +657,41 @@ struct ContentView: View {
                 in: .userDomainMask
             )[0]
 
-            let name = screen == "home"
-                ? "playbook.background.home.jpg"
-                : "playbook.background.library.jpg"
+            let name = backgroundFileName(for: screen)
             let url = documents.appendingPathComponent(name)
 
             try? data.write(to: url)
 
             DispatchQueue.main.async {
-                if screen == "home" {
+                switch screen {
+                case "home":
                     homeBackground = scaledImage
-                } else {
+                case "library":
                     libraryBackground = scaledImage
+                default:
+                    settingsBackground = scaledImage
                 }
                 refreshLibrary()
             }
+        }
+    }
+
+    private func resetBackground(for screen: String) {
+        let documents = FileManager.default.urls(
+            for: .documentDirectory,
+            in: .userDomainMask
+        )[0]
+
+        let name = backgroundFileName(for: screen)
+        try? FileManager.default.removeItem(at: documents.appendingPathComponent(name))
+
+        switch screen {
+        case "home":
+            homeBackground = nil
+        case "library":
+            libraryBackground = nil
+        default:
+            settingsBackground = nil
         }
     }
 
@@ -524,12 +709,14 @@ struct ContentView: View {
                 return UIImage(data: data)
             }
 
-            let home = loadImage("playbook.background.home.jpg")
-            let library = loadImage("playbook.background.library.jpg")
+            let home = loadImage(backgroundFileName(for: "home"))
+            let library = loadImage(backgroundFileName(for: "library"))
+            let settings = loadImage(backgroundFileName(for: "settings"))
 
             DispatchQueue.main.async {
                 homeBackground = home
                 libraryBackground = library
+                settingsBackground = settings
             }
         }
     }
@@ -576,6 +763,7 @@ struct ContentView: View {
         VStack(spacing: 0) {
             Text("PlayBook")
                 .font(AppFont.bold(34))
+                .foregroundStyle(theme.ui)
                 .frame(maxWidth: .infinity)
                 .padding(.top, 8)
 
@@ -615,7 +803,7 @@ struct ContentView: View {
 
                     Text("\(percentCompleted)%")
                         .font(AppFont.regular(13).monospacedDigit())
-                        .foregroundStyle(.white.opacity(0.7))
+                        .foregroundStyle(theme.ui.opacity(0.85))
                         .frame(maxWidth: .infinity, alignment: .center)
 
                     Text(timeString(duration))
@@ -638,6 +826,7 @@ struct ContentView: View {
                             : "play.circle.fill"
                     )
                     .font(.system(size: 64))
+                    .foregroundStyle(theme.ui)
                 }
                 .disabled(player == nil)
 
@@ -694,12 +883,12 @@ struct ContentView: View {
                 Image(systemName: "chevron.up.chevron.down")
                     .font(.system(size: 10, weight: .medium))
             }
-            .foregroundStyle(.white)
+            .foregroundStyle(theme.ui)
             .padding(.horizontal, 16)
             .padding(.vertical, 10)
             .overlay {
                 RoundedRectangle(cornerRadius: 18)
-                    .stroke(Color.white.opacity(0.8), lineWidth: 1)
+                    .stroke(theme.ui.opacity(0.8), lineWidth: 1)
             }
         }
         .buttonStyle(.plain)
@@ -733,12 +922,12 @@ struct ContentView: View {
                         .fixedSize()
                 }
             }
-            .foregroundStyle(.white)
+            .foregroundStyle(theme.ui)
             .padding(.horizontal, sleepTimerIsActive ? 16 : 14)
             .frame(height: 44)
             .overlay {
                 RoundedRectangle(cornerRadius: 18)
-                    .stroke(Color.white.opacity(0.8), lineWidth: 1)
+                    .stroke(theme.ui.opacity(0.8), lineWidth: 1)
             }
             .animation(.spring(response: 0.35, dampingFraction: 0.8), value: sleepTimerIsActive)
         }
@@ -755,12 +944,12 @@ struct ContentView: View {
                 Image(systemName: "bookmark")
                     .font(.system(size: 16, weight: .medium))
             }
-            .foregroundStyle(.white)
+            .foregroundStyle(theme.ui)
             .padding(.horizontal, 14)
             .frame(height: 44)
             .overlay {
                 RoundedRectangle(cornerRadius: 18)
-                    .stroke(Color.white.opacity(0.8), lineWidth: 1)
+                    .stroke(theme.ui.opacity(0.8), lineWidth: 1)
             }
         }
         .buttonStyle(.plain)
@@ -846,6 +1035,7 @@ struct ContentView: View {
         VStack(spacing: 16) {
             Text("Библиотека")
                 .font(AppFont.bold(34))
+                .foregroundStyle(theme.ui)
 
             if libraryFiles.isEmpty && folders.isEmpty {
                 Text("Аудиокниг пока нет")
@@ -867,7 +1057,7 @@ struct ContentView: View {
 
                         Text(selectedFolder)
                             .font(AppFont.bold(17))
-                            .foregroundStyle(.white)
+                            .foregroundStyle(theme.ui)
                             .listRowBackground(Color.white.opacity(0.08))
                     } else {
                         ForEach(folders, id: \.self) { folder in
@@ -876,9 +1066,7 @@ struct ContentView: View {
                             } label: {
                                 HStack(spacing: 12) {
                                     Image(systemName: "folder.fill")
-                                        .foregroundStyle(
-                                            Color(red: 0.85, green: 0.76, blue: 0.48)
-                                        )
+                                        .foregroundStyle(theme.ui)
                                     Text(folder)
                                         .font(AppFont.regular(17))
                                         .foregroundStyle(.white)
@@ -964,13 +1152,13 @@ struct ContentView: View {
                 } label: {
                     Image(systemName: "folder.badge.plus")
                         .font(.system(size: 16, weight: .medium))
-                        .foregroundStyle(.white)
+                        .foregroundStyle(theme.ui)
                         .padding(.horizontal, 16)
                         .padding(.vertical, 10)
                         .overlay {
                             Capsule()
                                 .stroke(
-                                    Color.white.opacity(0.8),
+                                    theme.ui.opacity(0.8),
                                     lineWidth: 1
                                 )
                         }
@@ -1001,10 +1189,13 @@ struct ContentView: View {
         }
     }
 
+    // MARK: - Настройки
+
     private var settingsView: some View {
         VStack(spacing: 16) {
             Text("Настройки")
                 .font(AppFont.bold(34))
+                .foregroundStyle(theme.ui)
 
             Button {
                 withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) {
@@ -1014,7 +1205,7 @@ struct ContentView: View {
                 HStack {
                     Text("ДИЗАЙН")
                         .font(AppFont.regular(17))
-                        .foregroundStyle(.white)
+                        .foregroundStyle(theme.ui)
 
                     Spacer()
 
@@ -1033,12 +1224,43 @@ struct ContentView: View {
 
             if isDesignSectionExpanded {
                 VStack(spacing: 2) {
-                    designRow("Фон главного экрана")
-                    designRow("Фон библиотеки")
-                    designRow("Фон настроек")
+                    backgroundRow("Фон главного экрана", target: "home")
+                    backgroundRow("Фон библиотеки", target: "library")
+                    backgroundRow("Фон настроек", target: "settings")
                 }
                 .transition(.opacity)
             }
+
+            Button {
+                currentScreenIsColor = true
+            } label: {
+                HStack {
+                    Text("ЦВЕТ")
+                        .font(AppFont.regular(17))
+                        .foregroundStyle(theme.ui)
+
+                    Spacer()
+
+                    Circle()
+                        .fill(theme.accentColor)
+                        .frame(width: 20, height: 20)
+                        .overlay(
+                            Circle().stroke(Color.white.opacity(0.4), lineWidth: 1)
+                        )
+                        .padding(.trailing, 6)
+
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 13, weight: .medium))
+                        .foregroundStyle(.white.opacity(0.7))
+                }
+                .padding(.horizontal, 16)
+                .padding(.vertical, 12)
+                .background(
+                    RoundedRectangle(cornerRadius: 12)
+                        .fill(Color.white.opacity(0.08))
+                )
+            }
+            .buttonStyle(.plain)
 
             Spacer(minLength: 0)
         }
@@ -1046,8 +1268,10 @@ struct ContentView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
-    private func designRow(_ title: String) -> some View {
+    // Строка выбора фона: тап — открыть Файлы, длинное нажатие — сбросить фон
+    private func backgroundRow(_ title: String, target: String) -> some View {
         Button {
+            chooseBackground(for: target)
         } label: {
             HStack {
                 Text(title)
@@ -1055,6 +1279,12 @@ struct ContentView: View {
                     .foregroundStyle(.white)
 
                 Spacer()
+
+                if backgroundImage(for: target) != nil {
+                    Image(systemName: "photo.fill")
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundStyle(theme.ui.opacity(0.8))
+                }
             }
             .padding(.horizontal, 16)
             .padding(.vertical, 12)
@@ -1064,6 +1294,152 @@ struct ContentView: View {
             )
         }
         .buttonStyle(.plain)
+        .contextMenu {
+            Button(role: .destructive) {
+                resetBackground(for: target)
+            } label: {
+                Label("Вернуть стандартный градиент", systemImage: "arrow.counterclockwise")
+            }
+        }
+    }
+
+    private func backgroundImage(for screen: String) -> UIImage? {
+        switch screen {
+        case "home":
+            return homeBackground
+        case "library":
+            return libraryBackground
+        default:
+            return settingsBackground
+        }
+    }
+
+    // MARK: - Настройка цвета
+
+    private var colorSettingsView: some View {
+        VStack(spacing: 16) {
+            Text("ЦВЕТ")
+                .font(AppFont.bold(34))
+                .foregroundStyle(theme.ui)
+
+            // Текущий выбранный цвет
+            HStack(spacing: 12) {
+                Circle()
+                    .fill(theme.accentColor)
+                    .frame(width: 44, height: 44)
+                    .overlay(
+                        Circle().stroke(Color.white.opacity(0.5), lineWidth: 1)
+                    )
+
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Текущий цвет")
+                        .font(AppFont.regular(13))
+                        .foregroundStyle(.white.opacity(0.7))
+
+                    Text(theme.accentColor.toHex())
+                        .font(AppFont.regular(16).monospacedDigit())
+                        .foregroundStyle(.white)
+                }
+
+                Spacer()
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 12)
+            .background(
+                RoundedRectangle(cornerRadius: 12)
+                    .fill(Color.white.opacity(0.08))
+            )
+
+            // Готовые цветовые варианты
+            VStack(alignment: .leading, spacing: 10) {
+                Text("Готовые цвета")
+                    .font(AppFont.regular(13))
+                    .foregroundStyle(.white.opacity(0.7))
+
+                LazyVGrid(
+                    columns: Array(
+                        repeating: GridItem(.flexible(), spacing: 12),
+                        count: 5
+                    ),
+                    spacing: 12
+                ) {
+                    ForEach(Array(PlayTheme.presets.enumerated()), id: \.offset) { _, color in
+                        Button {
+                            theme.accentColor = color
+                        } label: {
+                            ZStack {
+                                Circle()
+                                    .fill(color)
+                                    .frame(width: 44, height: 44)
+                                    .overlay(
+                                        Circle().stroke(Color.white.opacity(0.25), lineWidth: 1)
+                                    )
+
+                                if theme.accentColor.toHex() == color.toHex() {
+                                    Image(systemName: "checkmark")
+                                        .font(.system(size: 14, weight: .bold))
+                                        .foregroundStyle(
+                                            PlayTheme.luminance(of: color) > 0.6
+                                                ? Color.black
+                                                : Color.white
+                                        )
+                                }
+                            }
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+            }
+            .padding(12)
+            .background(
+                RoundedRectangle(cornerRadius: 12)
+                    .fill(Color.white.opacity(0.08))
+            )
+
+            // Произвольный цвет через системный селектор
+            HStack {
+                Text("Свой цвет")
+                    .font(AppFont.regular(16))
+                    .foregroundStyle(.white)
+
+                Spacer()
+
+                ColorPicker("", selection: $theme.accentColor, supportsOpacity: false)
+                    .labelsHidden()
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 8)
+            .background(
+                RoundedRectangle(cornerRadius: 12)
+                    .fill(Color.white.opacity(0.08))
+            )
+
+            // Возврат к стандартным цветам PlayBook
+            Button {
+                theme.resetAccent()
+            } label: {
+                HStack {
+                    Text("Вернуть стандартные цвета PlayBook")
+                        .font(AppFont.regular(16))
+                        .foregroundStyle(theme.ui)
+
+                    Spacer()
+                }
+                .padding(.horizontal, 16)
+                .padding(.vertical, 12)
+                .background(
+                    RoundedRectangle(cornerRadius: 12)
+                        .fill(Color.white.opacity(0.08))
+                )
+            }
+            .buttonStyle(.plain)
+            .disabled(theme.isDefaultAccent)
+            .opacity(theme.isDefaultAccent ? 0.5 : 1)
+
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 24)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
     private func seekButton(seconds: Double, symbol: String) -> some View {
@@ -1072,6 +1448,7 @@ struct ContentView: View {
         } label: {
             Image(systemName: symbol)
                 .font(.system(size: 30))
+                .foregroundStyle(theme.ui)
         }
         .disabled(player == nil)
     }
@@ -1426,6 +1803,8 @@ struct ContentView: View {
 // MARK: - Неоновая волна
 
 struct NeonWaveView: View {
+    @EnvironmentObject private var theme: PlayTheme
+
     let level: Double
 
     @State private var phase: Double = 0
@@ -1510,11 +1889,8 @@ struct NeonWaveView: View {
     }
 
     private func strandColor(_ t: CGFloat) -> Color {
-        Color(
-            red: 0.20 + 0.55 * Double(t),
-            green: 0.85 - 0.55 * Double(t),
-            blue: 1.0
-        )
+        // Плавный переход от выбранного цвета к его светлому оттенку
+        PlayTheme.mix(theme.accentColor, .white, Double(t) * 0.75)
     }
 }
 
@@ -1527,6 +1903,8 @@ struct CustomMenuOption {
 }
 
 struct CustomMenu: View {
+    @EnvironmentObject private var theme: PlayTheme
+
     let title: String?
     let options: [CustomMenuOption]
     let selectedIndex: Int?
@@ -1558,7 +1936,7 @@ struct CustomMenu: View {
                         if index == selectedIndex {
                             Image(systemName: "checkmark")
                                 .font(.system(size: 12, weight: .bold))
-                                .foregroundStyle(Color(red: 0.2, green: 0.55, blue: 1.0))
+                                .foregroundStyle(theme.ui)
                         }
                     }
                     .foregroundStyle(.white)
@@ -1575,7 +1953,7 @@ struct CustomMenu: View {
                 .fill(Color(red: 0.06, green: 0.07, blue: 0.16).opacity(0.92))
                 .overlay(
                     RoundedRectangle(cornerRadius: 18)
-                        .stroke(Color.white.opacity(0.15), lineWidth: 1)
+                        .stroke(theme.ui.opacity(0.25), lineWidth: 1)
                 )
         )
         .shadow(color: .black.opacity(0.45), radius: 18)
@@ -1585,6 +1963,8 @@ struct CustomMenu: View {
 
 // Тонкий ползунок с маленьким кружком
 struct SlimSlider: View {
+    @EnvironmentObject private var theme: PlayTheme
+
     @Binding var value: Double
     let range: ClosedRange<Double>
     var onEditingChanged: (Bool) -> Void = { _ in }
@@ -1606,11 +1986,11 @@ struct SlimSlider: View {
                     .frame(height: trackHeight)
 
                 Capsule()
-                    .fill(Color(red: 0.20, green: 0.55, blue: 1.0))
+                    .fill(theme.accentColor)
                     .frame(width: max(0, width * fraction), height: trackHeight)
 
                 Circle()
-                    .fill(Color(red: 0.20, green: 0.55, blue: 1.0))
+                    .fill(theme.accentColor)
                     .frame(width: knobSize, height: knobSize)
                     .offset(x: width * fraction - knobSize / 2)
             }
