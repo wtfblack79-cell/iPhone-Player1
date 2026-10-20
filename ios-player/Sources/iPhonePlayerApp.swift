@@ -29,6 +29,7 @@ enum ActiveMenu {
     case main
     case speed
     case sleep
+    case bookmark
 }
 
 struct ContentView: View {
@@ -53,6 +54,10 @@ struct ContentView: View {
     @State private var sleepTimerStartedAt: Date?
     @State private var sleepTimerExpired = false
     @State private var sleepTimerStartedPosition: Double = 0
+
+    // Закладка: позиция последнего включения таймера сна
+    @State private var sleepBookmarkPosition: Double = 0
+    @State private var sleepBookmarkFileName: String = ""
 
     // Ползунок
     @State private var isSeeking = false
@@ -103,6 +108,7 @@ struct ContentView: View {
         .foregroundStyle(.white)
         .onAppear {
             loadBackgrounds()
+            loadSleepBookmark()
 
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
                 let sharedDefaults = UserDefaults(suiteName: "group.com.personal.iphoneplayer")
@@ -250,6 +256,16 @@ struct ContentView: View {
                     .padding(.leading, 24)
                     .padding(.bottom, 108)
                 }
+            case .bookmark:
+                VStack {
+                    Spacer()
+                    HStack {
+                        bookmarkMenu
+                        Spacer()
+                    }
+                    .padding(.leading, 24)
+                    .padding(.bottom, 108)
+                }
             case .none:
                 EmptyView()
             }
@@ -330,6 +346,34 @@ struct ContentView: View {
                 }
             },
             selectedIndex: sleepOptions.firstIndex(of: sleepTimerTotal),
+            onSelect: { _ in },
+            onClose: {
+                withAnimation(.easeOut(duration: 0.2)) {
+                    activeMenu = .none
+                }
+            }
+        )
+    }
+
+    private var bookmarkMenu: some View {
+        CustomMenu(
+            title: "Закладка",
+            options: [
+                CustomMenuOption(
+                    title: hasSleepBookmark
+                        ? "Таймер сна был включён в \(timeString(sleepBookmarkPosition))"
+                        : "Пока нет сохранённой позиции",
+                    systemImage: "bookmark"
+                ) {
+                    if hasSleepBookmark {
+                        goToSleepBookmark()
+                    }
+                    withAnimation(.easeOut(duration: 0.2)) {
+                        activeMenu = .none
+                    }
+                }
+            ],
+            selectedIndex: nil,
             onSelect: { _ in },
             onClose: {
                 withAnimation(.easeOut(duration: 0.2)) {
@@ -615,6 +659,7 @@ struct ContentView: View {
                 HStack(spacing: 12) {
                     speedButton
                     sleepTimerButton
+                    bookmarkButton
                     Spacer()
                 }
             }
@@ -642,6 +687,31 @@ struct ContentView: View {
             .foregroundStyle(.white)
             .padding(.horizontal, 16)
             .padding(.vertical, 10)
+            .overlay {
+                RoundedRectangle(cornerRadius: 18)
+                    .stroke(Color.white.opacity(0.8), lineWidth: 1)
+            }
+        }
+        .buttonStyle(.plain)
+    }
+
+    private var hasSleepBookmark: Bool {
+        !sleepBookmarkFileName.isEmpty
+    }
+
+    private var bookmarkButton: some View {
+        Button {
+            withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) {
+                activeMenu = activeMenu == .bookmark ? .none : .bookmark
+            }
+        } label: {
+            HStack(spacing: 5) {
+                Image(systemName: "bookmark")
+                    .font(.system(size: 16, weight: .medium))
+            }
+            .foregroundStyle(.white)
+            .padding(.horizontal, 14)
+            .frame(height: 44)
             .overlay {
                 RoundedRectangle(cornerRadius: 18)
                     .stroke(Color.white.opacity(0.8), lineWidth: 1)
@@ -705,6 +775,8 @@ struct ContentView: View {
         sleepTimerStartedAt = Date()
         sleepTimerStartedPosition = player?.currentTime ?? 0
         sleepTimerExpired = false
+
+        saveSleepBookmark()
     }
 
     private func tickSleepTimer() {
@@ -720,6 +792,58 @@ struct ContentView: View {
             player.pause()
             isPlaying = false
         }
+    }
+
+    private func saveSleepBookmark() {
+        guard let player else { return }
+
+        sleepBookmarkPosition = player.currentTime
+        sleepBookmarkFileName = player.url?.lastPathComponent ?? ""
+
+        UserDefaults.standard.set(
+            sleepBookmarkPosition,
+            forKey: "playbook.sleepBookmarkPosition"
+        )
+        UserDefaults.standard.set(
+            sleepBookmarkFileName,
+            forKey: "playbook.sleepBookmarkFileName"
+        )
+    }
+
+    private func loadSleepBookmark() {
+        sleepBookmarkPosition = UserDefaults.standard.double(
+            forKey: "playbook.sleepBookmarkPosition"
+        )
+        sleepBookmarkFileName = UserDefaults.standard.string(
+            forKey: "playbook.sleepBookmarkFileName"
+        ) ?? ""
+    }
+
+    private func goToSleepBookmark() {
+        guard hasSleepBookmark else {
+            errorMessage = "Пока нет сохранённой позиции"
+            return
+        }
+
+        guard let player else {
+            errorMessage = "Сначала выберите аудиокнигу"
+            return
+        }
+
+        guard sleepBookmarkFileName == player.url?.lastPathComponent else {
+            errorMessage = "Закладка относится к другой книге"
+            return
+        }
+
+        let newTime = max(0, min(sleepBookmarkPosition, player.duration))
+        player.currentTime = newTime
+        progress = newTime
+        errorMessage = ""
+
+        UserDefaults.standard.set(
+            newTime,
+            forKey: "playbook.lastPosition"
+        )
     }
 
     // MARK: - Библиотека
