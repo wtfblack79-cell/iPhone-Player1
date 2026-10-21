@@ -106,6 +106,7 @@ final class EBookStore: ObservableObject {
                     fileExtension: ext,
                     fallback: fallbackTitle
                 )
+
                 let book = EBook(title: bookTitle, fileName: fileName)
                 books.append(book)
                 saveIndex()
@@ -139,10 +140,7 @@ final class EBookStore: ObservableObject {
     func text(for book: EBook) -> String? {
         let url = directory.appendingPathComponent(book.fileName)
         guard let data = try? Data(contentsOf: url) else { return nil }
-        return EBookParser.parse(
-            data: data,
-            fileExtension: (book.fileName as NSString).pathExtension.lowercased()
-        )
+        return EBookParser.parse(data: data, fileExtension: book.fileName.pathExtension.lowercased())
     }
 }
 
@@ -642,11 +640,6 @@ struct ReadingScreenView: View {
                 }
             }
         }
-        .onAppear {
-            if let initialBook = initialBook, currentBook == nil {
-                open(initialBook)
-            }
-        }
         .fileImporter(
             isPresented: $showingImporter,
             allowedContentTypes: [.epub, .plainText, EBookFileType.fb2],
@@ -656,6 +649,11 @@ struct ReadingScreenView: View {
                 withAnimation(.easeOut(duration: 0.2)) {
                     open(book)
                 }
+            }
+        }
+        .onAppear {
+            if let book = initialBook {
+                open(book)
             }
         }
     }
@@ -727,13 +725,7 @@ struct ReadingScreenView: View {
                             options: [
                                 CustomMenuOption(title: "Добавить книгу", systemImage: "plus") {
                                     isMenuOpen = false
-
-                                    // Показываем fileImporter после того,
-                                    // как меню исчезнет из иерархии — иначе
-                                    // SwiftUI отменяет показ диалога
-                                    DispatchQueue.main.asyncAfter(
-                                        deadline: .now() + 0.35
-                                    ) {
+                                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
                                         showingImporter = true
                                     }
                                 },
@@ -776,7 +768,7 @@ struct ReadingScreenView: View {
                         .font(AppFont.bold(22))
                         .foregroundStyle(.white)
 
-                    Text("Добавьте EPUB, TXT или FB2 через меню «⋯»")
+                    Text("Добавьте FB2, EPUB или TXT через меню «⋯»")
                         .font(AppFont.regular(15))
                         .foregroundStyle(.white.opacity(0.7))
                         .multilineTextAlignment(.center)
