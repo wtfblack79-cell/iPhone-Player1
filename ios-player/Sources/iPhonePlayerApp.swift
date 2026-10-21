@@ -164,6 +164,7 @@ struct ContentView: View {
     @State private var duration: Double = 0
     @State private var speed: Float = 1.0
     @State private var showingImporter = false
+    @State private var showingLibraryImporter = false
     @State private var libraryFiles: [URL] = []
     @State private var currentScreenIsLibrary = false
     @State private var currentScreenIsSettings = false
@@ -195,7 +196,6 @@ struct ContentView: View {
     @State private var libraryBackground: UIImage?
     @State private var settingsBackground: UIImage?
     @State private var showingBackgroundPicker = false
-    @State private var showingBookImporter = false
     @State private var backgroundTarget = "home"
 
     // Собственные меню
@@ -329,13 +329,11 @@ struct ContentView: View {
             importBackgroundImage(result)
         }
         .fileImporter(
-            isPresented: $showingBookImporter,
-            allowedContentTypes: [.epub, .plainText],
+            isPresented: $showingLibraryImporter,
+            allowedContentTypes: [.epub, .plainText, .fb2],
             allowsMultipleSelection: false
         ) { result in
-            if ebookStore.importBook(from: result) != nil {
-                errorMessage = ""
-            }
+            ebookStore.importBook(from: result)
         }
         .overlay(alignment: .topTrailing) {
             if currentScreenIsReading {
@@ -1092,34 +1090,14 @@ struct ContentView: View {
                 .font(AppFont.bold(34))
                 .foregroundStyle(theme.ui)
 
-            Button {
-                showingBookImporter = true
-            } label: {
-                HStack(spacing: 8) {
-                    Image(systemName: "plus.circle.fill")
-                        .font(.system(size: 17, weight: .medium))
-
-                    Text("Добавить книгу")
-                        .font(AppFont.regular(17))
-                }
-                .foregroundStyle(theme.ui)
-                .padding(.horizontal, 20)
-                .frame(height: 46)
-                .background(
-                    RoundedRectangle(cornerRadius: 18)
-                        .fill(Color.white.opacity(0.08))
-                )
-                .overlay {
-                    RoundedRectangle(cornerRadius: 18)
-                        .stroke(theme.ui.opacity(0.8), lineWidth: 1)
-                }
-            }
-            .buttonStyle(.plain)
-
             if libraryFiles.isEmpty && folders.isEmpty && ebookStore.books.isEmpty {
                 Text("Пока нет книг")
                     .font(AppFont.regular(15))
                     .foregroundStyle(.white.opacity(0.7))
+
+                Text("Добавьте книгу кнопкой «+» внизу или через меню чтения")
+                    .font(AppFont.regular(13))
+                    .foregroundStyle(.white.opacity(0.5))
             } else {
                 List {
                     if let selectedFolder {
@@ -1270,6 +1248,24 @@ struct ContentView: View {
                     showingCreateFolder = true
                 } label: {
                     Image(systemName: "folder.badge.plus")
+                        .font(.system(size: 16, weight: .medium))
+                        .foregroundStyle(theme.ui)
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 10)
+                        .overlay {
+                            Capsule()
+                                .stroke(
+                                    theme.ui.opacity(0.8),
+                                    lineWidth: 1
+                                )
+                        }
+                }
+                .buttonStyle(.plain)
+
+                Button {
+                    showingLibraryImporter = true
+                } label: {
+                    Image(systemName: "plus")
                         .font(.system(size: 16, weight: .medium))
                         .foregroundStyle(theme.ui)
                         .padding(.horizontal, 16)
