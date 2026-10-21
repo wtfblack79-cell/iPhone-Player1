@@ -163,8 +163,6 @@ struct ContentView: View {
     @State private var progress: Double = 0
     @State private var duration: Double = 0
     @State private var speed: Float = 1.0
-    @State private var showingImporter = false
-    @State private var showingBookImporter = false
     @State private var libraryFiles: [URL] = []
     @State private var currentScreenIsLibrary = false
     @State private var currentScreenIsSettings = false
@@ -222,6 +220,8 @@ struct ContentView: View {
         "wav", "aiff", "caf", "flac"
     ]
 
+    private let bookExtensions: Set<String> = ["fb2", "epub", "txt"]
+
     private let speedOptions: [Float] = [0.75, 1.0, 1.25, 1.5, 2.0]
     private let sleepOptions: [Int] = [0, 5, 10, 15, 30, 45, 60]
 
@@ -272,6 +272,9 @@ struct ContentView: View {
                 if let path = sharedDefaults?.string(forKey: "lastSharedAudioPath") {
                     openSharedAudio(URL(fileURLWithPath: path))
                     sharedDefaults?.removeObject(forKey: "lastSharedAudioPath")
+                } else if let path = sharedDefaults?.string(forKey: "lastSharedBookPath") {
+                    importIncomingBook(URL(fileURLWithPath: path))
+                    sharedDefaults?.removeObject(forKey: "lastSharedBookPath")
                 } else {
                     restoreLastAudio()
                 }
@@ -284,9 +287,12 @@ struct ContentView: View {
                     if let path = sharedDefaults?.string(forKey: "lastSharedAudioPath") {
                         openSharedAudio(URL(fileURLWithPath: path))
                         sharedDefaults?.removeObject(forKey: "lastSharedAudioPath")
+                    } else if let path = sharedDefaults?.string(forKey: "lastSharedBookPath") {
+                        importIncomingBook(URL(fileURLWithPath: path))
+                        sharedDefaults?.removeObject(forKey: "lastSharedBookPath")
                     }
                 } else {
-                    importIncomingAudio(url)
+                    importIncomingFile(url)
                 }
             }
         }
@@ -316,32 +322,11 @@ struct ContentView: View {
             updateWaveLevel()
         }
         .fileImporter(
-            isPresented: $showingImporter,
-            allowedContentTypes: [.audio, .mp3, .mpeg4Audio],
-            allowsMultipleSelection: false
-        ) { result in
-            loadAudio(result)
-        }
-        .fileImporter(
             isPresented: $showingBackgroundPicker,
             allowedContentTypes: [.image],
             allowsMultipleSelection: false
         ) { result in
             importBackgroundImage(result)
-        }
-        .fileImporter(
-            isPresented: $showingBookImporter,
-            allowedContentTypes: [.epub, .plainText, EBookFileType.fb2],
-            allowsMultipleSelection: false
-        ) { result in
-            if let book = ebookStore.importBook(from: result) {
-                readingBook = book
-                readingOriginIsLibrary = true
-                currentScreenIsLibrary = false
-                withAnimation(.easeOut(duration: 0.2)) {
-                    currentScreenIsReading = true
-                }
-            }
         }
         .overlay(alignment: .topTrailing) {
             if currentScreenIsReading {
@@ -1266,24 +1251,6 @@ struct ContentView: View {
                 }
                 .buttonStyle(.plain)
 
-                Button {
-                    showingBookImporter = true
-                } label: {
-                    Image(systemName: "doc.badge.plus")
-                        .font(.system(size: 16, weight: .medium))
-                        .foregroundStyle(theme.ui)
-                        .padding(.horizontal, 16)
-                        .padding(.vertical, 10)
-                        .overlay {
-                            Capsule()
-                                .stroke(
-                                    theme.ui.opacity(0.8),
-                                    lineWidth: 1
-                                )
-                        }
-                }
-                .buttonStyle(.plain)
-
                 Spacer()
             }
             .padding(.horizontal, 24)
@@ -1774,6 +1741,34 @@ struct ContentView: View {
         } catch {
             errorMessage = "Не удалось открыть аудио: \(error.localizedDescription)"
         }
+    }
+
+    // Файл пришёл в приложение извне: «Поделиться» → «Скопировать в PlayBook»,
+    // «Поделиться» в Файлах, почта и т. д. Маршрутизируем по расширению.
+
+    private func importIncomingFile(_ url: URL) {
+        let ext = url.pathExtension.lowercased()
+
+        if audioExtensions.contains(ext) {
+            importIncomingAudio(url)
+            return
+        }
+
+        if bookExtensions.contains(ext) {
+            importIncomingBook(url)
+            return
+        }
+
+        errorMessage = "Этот формат файла не поддерживается."
+    }
+
+    private func importIncomingBook(_ url: URL) {
+        guard ebookStore.importBook(from: url) != nil else { return }
+
+        refreshLibrary()
+        currentScreenIsLibrary = true
+        currentScreenIsReading = false
+        errorMessage = ""
     }
 
     private func importIncomingAudio(_ url: URL) {
