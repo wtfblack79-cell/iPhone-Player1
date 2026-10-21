@@ -12,10 +12,8 @@ enum EBookFileType {
         if let registered = UTType(filenameExtension: "fb2") {
             return registered
         }
-        if let declared = UTType(exportedAs: "com.fictionbook.fb2", conformingTo: .xml) {
-            return declared
-        }
-        return .xml
+        // В текущем SDK этот инициализатор не опциональный и не бросает ошибку.
+        return UTType(exportedAs: "com.fictionbook.fb2", conformingTo: .xml)
     }()
 }
 
@@ -140,7 +138,10 @@ final class EBookStore: ObservableObject {
     func text(for book: EBook) -> String? {
         let url = directory.appendingPathComponent(book.fileName)
         guard let data = try? Data(contentsOf: url) else { return nil }
-        return EBookParser.parse(data: data, fileExtension: (book.fileName as NSString).pathExtension.lowercased())
+        return EBookParser.parse(
+            data: data,
+            fileExtension: (book.fileName as NSString).pathExtension.lowercased()
+        )
     }
 }
 
