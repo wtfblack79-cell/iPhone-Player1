@@ -265,43 +265,9 @@ struct ContentView: View {
                 forKey: "playbook.sleepBookmarkFileName"
             ) ?? ""
 
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
-                let sharedDefaults = UserDefaults(suiteName: "group.com.personal.iphoneplayer")
 
-                if let path = sharedDefaults?.string(forKey: "lastSharedBookPath") {
-                    sharedDefaults?.removeObject(forKey: "lastSharedBookPath")
-                    importIncomingBook(URL(fileURLWithPath: path))
-                } else if let path = sharedDefaults?.string(forKey: "lastSharedAudioPath") {
-                    openSharedAudio(URL(fileURLWithPath: path))
-                    sharedDefaults?.removeObject(forKey: "lastSharedAudioPath")
-                } else {
-                    restoreLastAudio()
-                }
-            }
         }
-        .onOpenURL { url in
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
-                if url.scheme == "playbook" {
-                    let sharedDefaults = UserDefaults(suiteName: "group.com.personal.iphoneplayer")
 
-                    if let path = sharedDefaults?.string(forKey: "lastSharedBookPath") {
-                        sharedDefaults?.removeObject(forKey: "lastSharedBookPath")
-                        importIncomingBook(URL(fileURLWithPath: path))
-                    } else if let path = sharedDefaults?.string(forKey: "lastSharedAudioPath") {
-                        openSharedAudio(URL(fileURLWithPath: path))
-                        sharedDefaults?.removeObject(forKey: "lastSharedAudioPath")
-                    }
-                } else {
-                    let ext = url.pathExtension.lowercased()
-
-                    if ["fb2", "epub", "txt"].contains(ext) {
-                        importIncomingBook(url)
-                    } else {
-                        importIncomingAudio(url)
-                    }
-                }
-            }
-        }
         .onReceive(timer) { _ in
             guard let player else { return }
 
@@ -1257,7 +1223,6 @@ struct ContentView: View {
                 }
                 .buttonStyle(.plain)
 
-
                 Spacer()
             }
             .padding(.horizontal, 24)
@@ -1803,18 +1768,13 @@ struct ContentView: View {
     }
 
     private func importIncomingBook(_ url: URL) {
-        let ext = url.pathExtension.lowercased()
-        guard ["fb2", "epub", "txt"].contains(ext) else {
-            errorMessage = "Этот формат книги не поддерживается."
-            return
-        }
-
-        withAnimation(.easeOut(duration: 0.2)) {
-            currentScreenIsLibrary = true
-        }
-
-        if ebookStore.importBook(from: url) != nil {
-            errorMessage = ""
+        if let book = ebookStore.importBook(from: url) {
+            readingBook = book
+            readingOriginIsLibrary = true
+            currentScreenIsLibrary = false
+            withAnimation(.easeOut(duration: 0.2)) {
+                currentScreenIsReading = true
+            }
         }
     }
 
