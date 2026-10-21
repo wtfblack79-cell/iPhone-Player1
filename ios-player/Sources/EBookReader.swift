@@ -106,7 +106,6 @@ final class EBookStore: ObservableObject {
                     fileExtension: ext,
                     fallback: fallbackTitle
                 )
-
                 let book = EBook(title: bookTitle, fileName: fileName)
                 books.append(book)
                 saveIndex()
@@ -166,7 +165,6 @@ enum EBookParser {
                 }
             }
         }
-
         if fileExtension == "fb2" {
             let xml = fb2String(from: data)
             if let title = firstGroup(
@@ -778,7 +776,7 @@ struct ReadingScreenView: View {
                         .font(AppFont.bold(22))
                         .foregroundStyle(.white)
 
-                    Text("Добавьте EPUB или TXT через меню «⋯»")
+                    Text("Добавьте EPUB, TXT или FB2 через меню «⋯»")
                         .font(AppFont.regular(15))
                         .foregroundStyle(.white.opacity(0.7))
                         .multilineTextAlignment(.center)
