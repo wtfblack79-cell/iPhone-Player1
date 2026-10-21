@@ -65,9 +65,6 @@ final class EBookStore: ObservableObject {
     }
 
     // MARK: Импорт
-    // Книгу приносит iOS: «Поделиться» → значок PlayBook → «Скопировать»,
-    // либо открытие файла из Файлов, почты или мессенджера.
-    // Файл копируется в Documents/EBooks, поэтому книга живёт и после перезапуска.
 
     @discardableResult
     func importBook(from url: URL) -> EBook? {
@@ -745,7 +742,7 @@ struct ReadingScreenView: View {
                         .font(AppFont.bold(22))
                         .foregroundStyle(.white)
 
-                    Text("Добавьте книги через меню «Поделиться» → «Скопировать в PlayBook»")
+                    Text("Добавьте FB2, EPUB или TXT через меню «⋯»")
                         .font(AppFont.regular(15))
                         .foregroundStyle(.white.opacity(0.7))
                         .multilineTextAlignment(.center)
