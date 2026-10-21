@@ -66,7 +66,7 @@ targets:
               - org.idpf.epub-container
           - CFBundleTypeName: Text
             CFBundleTypeRole: Viewer
-            LSHandlerRank: Default
+            LSHandlerRank: Owner
             LSItemContentTypes:
               - public.plain-text
         UTImportedTypeDeclarations:
@@ -92,14 +92,6 @@ targets:
       path: Sources/PlayBookShare/PlayBookShare-Info.plist
       properties:
         CFBundleDisplayName: PlayBook
-        UTImportedTypeDeclarations:
-          - UTTypeIdentifier: com.fictionbook.fb2
-            UTTypeDescription: FictionBook 2
-            UTTypeConformsTo:
-              - public.xml
-            UTTypeTagSpecification:
-              public.filename-extension:
-                - fb2
         NSExtension:
           NSExtensionPointIdentifier: com.apple.share-services
           NSExtensionPrincipalClass: $(PRODUCT_MODULE_NAME).ShareViewController
