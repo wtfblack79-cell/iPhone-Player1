@@ -4,796 +4,595 @@ import Compression
 
 // MARK: - Модель электронной книги
 
-struct EBook: Identifiable, Equatable {
-    let id: String        // имя файла в хранилище
-    let title: String     // читаемое название
-    let fileName: String
-}
-
-enum EBookError: LocalizedError {
-    case unsupported
-    case damaged
-    case empty
-
-    var errorDescription: String? {
-        switch self {
-        case .unsupported:
-            return "Формат файла не поддерживается"
-        case .damaged:
-            return "Файл книги повреждён"
-        case .empty:
-            return "В книге не найден текст"
-        }
-    }
+struct EBook: Identifiable, Codable {
+    var id: UUID = UUID()
+    var title: String
+    var fileName: String
 }
 
 // MARK: - Хранилище электронных книг
+// Копирует файлы в Documents/EBooks, поэтому книги переживают перезапуск
+// приложения и не пересекаются с аудиобиблиотекой (она сканирует корень Documents).
 
-// Книги копируются в Documents/EBooks и переживают перезапуск приложения.
-// Аудиобиблиотека не затрагивается: refreshLibrary() сканирует только корень
-// Documents и отбирает файлы по аудио-расширениям, а книги лежат в подпапке.
 @MainActor
 final class EBookStore: ObservableObject {
-    @Published var books: [EBook] = []
+    @Published private(set) var books: [EBook] = []
+    @Published private(set) var isLoading = false
+    @Published var errorMessage: String?
 
-    private var documentsURL: URL {
-        FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
-    }
-
-    private var libraryURL: URL {
-        documentsURL.appendingPathComponent("EBooks", isDirectory: true)
-    }
+    private let directory: URL
+    private let indexKey = "playbook.ebooks.index"
 
     init() {
-        try? FileManager.default.createDirectory(
-            at: libraryURL,
-            withIntermediateDirectories: true
-        )
-        reload()
+        let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)
+        directory = docs[0].appendingPathComponent("EBooks", isDirectory: true)
+
+        try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        loadIndex()
     }
 
-    func reload() {
-        let files = (try? FileManager.default.contentsOfDirectory(
-            at: libraryURL,
-            includingPropertiesForKeys: nil
-        )) ?? []
+    // MARK: Персистентность
 
-        books = files
-            .filter { ["epub", "txt"].contains($0.pathExtension.lowercased()) }
-            .sorted {
-                $0.lastPathComponent.localizedCaseInsensitiveCompare(
-                    $1.lastPathComponent
-                ) == .orderedAscending
+    private func loadIndex() {
+        guard let data = UserDefaults.standard.data(forKey: indexKey) else { return }
+        guard let decoded = try? JSONDecoder().decode([EBook].self, from: data) else { return }
+
+        let fileManager = FileManager.default
+        books = decoded.filter { book in
+            fileManager.fileExists(atPath: directory.appendingPathComponent(book.fileName).path)
+        }
+    }
+
+    private func saveIndex() {
+        if let data = try? JSONEncoder().encode(books) {
+            UserDefaults.standard.set(data, forKey: indexKey)
+        }
+    }
+
+    // MARK: Импорт
+
+    @discardableResult
+    func importBook(from result: Result<[URL], Error>) -> EBook? {
+        switch result {
+        case .success(let urls):
+            guard let url = urls.first else { return nil }
+
+            let ext = url.pathExtension.lowercased()
+            guard ext == "epub" || ext == "txt" else {
+                errorMessage = "Поддерживаются только файлы EPUB и TXT"
+                return nil
             }
-            .map { url in
-                EBook(
-                    id: url.lastPathComponent,
-                    title: url.deletingPathExtension().lastPathComponent,
-                    fileName: url.lastPathComponent
+
+            let accessGranted = url.startAccessingSecurityScopedResource()
+            defer {
+                if accessGranted {
+                    url.stopAccessingSecurityScopedResource()
+                }
+            }
+
+            guard let data = try? Data(contentsOf: url) else {
+                errorMessage = "Не удалось прочитать файл книги"
+                return nil
+            }
+
+            do {
+                try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+
+                let fileName = UUID().uuidString + "." + ext
+                try data.write(to: directory.appendingPathComponent(fileName))
+
+                isLoading = true
+                let fallbackTitle = url.deletingPathExtension().lastPathComponent
+
+                let bookTitle = EBookParser.bookTitle(
+                    data: data,
+                    fileExtension: ext,
+                    fallback: fallbackTitle
                 )
+                let text = EBookParser.parse(data: data, fileExtension: ext)
+
+                let book = EBook(title: bookTitle, fileName: fileName)
+                books.append(book)
+                saveIndex()
+                isLoading = false
+                errorMessage = nil
+                return book
+            } catch {
+                errorMessage = "Не удалось сохранить книгу: \(error.localizedDescription)"
+                isLoading = false
+                return nil
             }
+
+        case .failure(let error):
+            errorMessage = error.localizedDescription
+            return nil
+        }
     }
 
-    // Копирует выбранный файл в постоянное хранилище и возвращает книгу
-    func importBook(from sourceURL: URL) throws -> EBook {
-        let ext = sourceURL.pathExtension.lowercased()
+    // MARK: Чтение
 
-        guard ext == "epub" || ext == "txt" else {
-            throw EBookError.unsupported
-        }
-
-        let access = sourceURL.startAccessingSecurityScopedResource()
-        defer {
-            if access {
-                sourceURL.stopAccessingSecurityScopedResource()
-            }
-        }
-
-        let baseName = sourceURL.deletingPathExtension().lastPathComponent
-
-        // Если книга с таким именем уже есть — добавляем суффикс
-        var target = libraryURL.appendingPathComponent(sourceURL.lastPathComponent)
-        var counter = 1
-
-        while FileManager.default.fileExists(atPath: target.path) {
-            target = libraryURL.appendingPathComponent(
-                "\(baseName) (\(counter)).\(ext)"
-            )
-            counter += 1
-        }
-
-        try FileManager.default.copyItem(at: sourceURL, to: target)
-        reload()
-
-        return EBook(
-            id: target.lastPathComponent,
-            title: baseName,
-            fileName: target.lastPathComponent
-        )
-    }
-
-    // Возвращает текст книги по главам
-    func loadChapters(for book: EBook) throws -> [String] {
-        let url = libraryURL.appendingPathComponent(book.fileName)
-        let data = try Data(contentsOf: url)
-
-        switch url.pathExtension.lowercased() {
-        case "txt":
-            let text = EBookParser.parseTXT(data)
-            guard !text.isEmpty else {
-                throw EBookError.empty
-            }
-            return [text]
-        case "epub":
-            let chapters = try EBookParser.parseEPUB(data)
-            guard !chapters.isEmpty else {
-                throw EBookError.empty
-            }
-            return chapters
-        default:
-            throw EBookError.unsupported
-        }
+    func text(for book: EBook) -> String? {
+        let url = directory.appendingPathComponent(book.fileName)
+        guard let data = try? Data(contentsOf: url) else { return nil }
+        return EBookParser.parse(data: data, fileExtension: book.fileName.pathExtension.lowercased())
     }
 }
 
-// MARK: - Разбор электронных книг
+// MARK: - Разбор EPUB и TXT
 
 enum EBookParser {
-    // Кодировка Windows-1251 как резерв для TXT
-    private static let cp1251 = String.Encoding(
-        rawValue: CFStringConvertEncodingToNSStringEncoding(
-            CFStringEncoding(CFStringEncodings.windowsCP1251.rawValue)
-        )
-    )
+    // MARK: Публичный API
 
-    static func parseTXT(_ data: Data) -> String {
-        let text = decodeString(data)
-        return normalizePlainText(text)
-    }
-
-    // MARK: EPUB
-
-    // Лёгкий разбор EPUB (ZIP-контейнер) без сторонних зависимостей:
-    // container.xml -> OPF -> порядок глав из spine -> чистый текст
-    static func parseEPUB(_ data: Data) throws -> [String] {
-        guard let files = readZipEntries(data), !files.isEmpty else {
-            throw EBookError.damaged
-        }
-
-        guard
-            let containerData = files["META-INF/container.xml"],
-            let container = decodeString(containerData),
-            !container.isEmpty,
-            let opfPath = firstGroup(in: container, pattern: "full-path\\s*=\\s*\"([^\"]+)\""),
-            let opfData = lookup(files, opfPath)
-        else {
-            throw EBookError.damaged
-        }
-
-        let opf = decodeString(opfData)
-        let opfDirectory = opfPath.contains("/")
-            ? String(opfPath[..<opfPath.lastIndex(of: "/")!])
-            : ""
-
-        // Манифест: id -> href и media-type
-        var manifest: [String: (href: String, mediaType: String)] = [:]
-
-        for tag in regexMatches(in: opf, pattern: "<item\\b[^>]*>") {
-            guard
-                let id = attribute("id", in: tag),
-                let href = attribute("href", in: tag)
-            else {
-                continue
-            }
-
-            manifest[id] = (href, attribute("media-type", in: tag) ?? "")
-        }
-
-        // Порядок глав из spine
-        var chapterPaths: [String] = []
-
-        for tag in regexMatches(in: opf, pattern: "<itemref\\b[^>]*>") {
-            guard let idref = attribute("idref", in: tag) else {
-                continue
-            }
-
-            if let item = manifest[idref] {
-                chapterPaths.append(item.href)
-            }
-        }
-
-        // Резерв: если spine не найден — берём все HTML-файлы по алфавиту
-        if chapterPaths.isEmpty {
-            chapterPaths = files.keys
-                .filter {
-                    let ext = ($0 as NSString).pathExtension.lowercased()
-                    return ["xhtml", "html", "htm"].contains(ext)
-                }
-                .sorted { $0.localizedCaseInsensitiveCompare($1) == .orderedAscending }
-        }
-
-        var chapters: [String] = []
-
-        for href in chapterPaths {
-            let resolved = resolvePath(base: opfDirectory, href: href)
-
-            guard let fileData = lookup(files, resolved) else {
-                continue
-            }
-
-            let text = stripHTML(decodeString(fileData))
-
-            if !text.isEmpty {
-                chapters.append(text)
-            }
-        }
-
-        return chapters
-    }
-
-    // MARK: Разбор ZIP (минимальный, только то, что нужно для EPUB)
-
-    private static func readZipEntries(_ data: Data) -> [String: Data]? {
-        guard
-            let eocdOffset = findEOCD(in: data),
-            let totalEntries = readUInt16(data, at: eocdOffset + 10),
-            let centralOffset = readUInt32(data, at: eocdOffset + 16)
-        else {
-            return nil
-        }
-
-        var result: [String: Data] = [:]
-        var position = Int(centralOffset)
-
-        for _ in 0..<Int(totalEntries) {
-            guard
-                position + 46 <= data.count,
-                readUInt32(data, at: position) == 0x02014b50,
-                let method = readUInt16(data, at: position + 10),
-                let compressedSize = readUInt32(data, at: position + 20),
-                let nameLength = readUInt16(data, at: position + 28),
-                let extraLength = readUInt16(data, at: position + 30),
-                let commentLength = readUInt16(data, at: position + 32),
-                let headerOffset = readUInt32(data, at: position + 42)
-            else {
-                break
-            }
-
-            let nameStart = position + 46
-            let nameEnd = nameStart + Int(nameLength)
-
-            if nameEnd <= data.count,
-               let rawName = data.subdata(in: nameStart..<nameEnd),
-               let name = decodeZipName(rawName),
-               !compressedSize.isNullMax,
-               let entryData = extractFile(
-                   data,
-                   headerOffset: Int(headerOffset),
-                   method: method,
-                   compressedSize: Int(compressedSize)
-               )
-            {
-                result[name] = entryData
-            }
-
-            position = nameEnd + Int(extraLength) + Int(commentLength)
-        }
-
-        return result.isEmpty ? nil : result
-    }
-
-    private static func findEOCD(in data: Data) -> Int? {
-        let signature: [UInt8] = [0x50, 0x4B, 0x05, 0x06]
-        let searchLimit = max(0, data.count - 22 - 65_536)
-
-        var index = data.count - 22
-
-        while index >= searchLimit {
-            if data[index] == signature[0],
-               data[index + 1] == signature[1],
-               data[index + 2] == signature[2],
-               data[index + 3] == signature[3]
-            {
-                return index
-            }
-
-            index -= 1
-        }
-
-        return nil
-    }
-
-    private static func extractFile(
-        _ data: Data,
-        headerOffset: Int,
-        method: UInt16,
-        compressedSize: Int
-    ) -> Data? {
-        guard headerOffset + 30 <= data.count else {
-            return nil
-        }
-
-        guard readUInt32(data, at: headerOffset) == 0x04034b50 else {
-            return nil
-        }
-
-        guard
-            let nameLength = readUInt16(data, at: headerOffset + 26),
-            let extraLength = readUInt16(data, at: headerOffset + 28)
-        else {
-            return nil
-        }
-
-        let start = headerOffset + 30 + Int(nameLength) + Int(extraLength)
-        let end = start + compressedSize
-
-        guard start <= data.count, end <= data.count else {
-            return nil
-        }
-
-        let chunk = data.subdata(in: start..<end)
-
-        switch method {
-        case 0:
-            return chunk
-        case 8:
-            return inflate(chunk)
-        default:
-            return nil
-        }
-    }
-
-    // Распаковка deflate (метод ZIP 8) через системный Compression
-    private static func inflate(_ input: Data) -> Data? {
-        guard !input.isEmpty else {
-            return Data()
-        }
-
-        var outputCapacity = max(64 * 1024, input.count * 4)
-
-        while outputCapacity <= 128 * 1024 * 1024 {
-            var output = Data(count: outputCapacity)
-            var status = COMPRESSION_STATUS_OK
-            var written = 0
-
-            input.withUnsafeBytes { (source: UnsafeRawBufferPointer) in
-                output.withUnsafeMutableBytes { (destination: UnsafeMutableRawBufferPointer) in
-                    guard
-                        let sourceBase = source.bindMemory(to: UInt8.self).baseAddress,
-                        let destinationBase = destination.bindMemory(to: UInt8.self).baseAddress
-                    else {
-                        status = COMPRESSION_STATUS_ERROR
-                        return
+    static func bookTitle(data: Data, fileExtension: String, fallback: String) -> String {
+        if fileExtension == "epub" {
+            let files = unzip(data)
+            if let opfPath = opfPath(in: files), let opfData = files[opfPath] {
+                let opf = decodeString(opfData)
+                if let title = firstGroup(in: opf, pattern: "<dc:title[^>]*>(.*?)</dc:title>") {
+                    let plain = plainText(fromHTML: title)
+                        .trimmingCharacters(in: .whitespacesAndNewlines)
+                    if !plain.isEmpty {
+                        return plain
                     }
-
-                    var stream = compression_stream(
-                        dst_ptr: destinationBase,
-                        dst_size: outputCapacity,
-                        src_ptr: sourceBase,
-                        src_size: input.count,
-                        state: nil
-                    )
-
-                    status = compression_stream_process(
-                        &stream,
-                        Int32(COMPRESSION_STREAM_FINALIZE)
-                    )
-                    written = outputCapacity - stream.dst_size
                 }
             }
-
-            if status == COMPRESSION_STATUS_END {
-                return output.prefix(written)
-            }
-
-            if status == COMPRESSION_STATUS_OK && written == outputCapacity {
-                outputCapacity *= 2
-                continue
-            }
-
-            return nil
         }
-
-        return nil
+        return fallback
     }
 
-    private static func readUInt16(_ data: Data, at offset: Int) -> UInt16? {
-        guard offset >= 0, offset + 2 <= data.count else {
-            return nil
+    static func parse(data: Data, fileExtension: String) -> String {
+        switch fileExtension {
+        case "txt":
+            return text(fromTXT: data)
+        case "epub":
+            return text(fromEPUB: data)
+        default:
+            return ""
         }
-
-        return UInt16(data[offset]) | (UInt16(data[offset + 1]) << 8)
     }
 
-    private static func readUInt32(_ data: Data, at offset: Int) -> UInt32? {
-        guard offset >= 0, offset + 4 <= data.count else {
-            return nil
+    // MARK: TXT (UTF-8 с откатом на Windows-1251)
+
+    private static func text(fromTXT data: Data) -> String {
+        if let utf8 = String(data: data, encoding: .utf8) {
+            return normalize(utf8)
         }
 
-        return UInt32(data[offset])
-            | (UInt32(data[offset + 1]) << 8)
-            | (UInt32(data[offset + 2]) << 16)
-            | (UInt32(data[offset + 3]) << 24)
-    }
-
-    private static func decodeZipName(_ data: Data) -> String? {
-        if let name = String(data: data, encoding: .utf8) {
-            return name
-        }
-
-        return String(data: data, encoding: cp1251)
-    }
-
-    // Поиск по архиву с нормализацией и резервом по регистру
-    private static func lookup(_ files: [String: Data], _ path: String) -> Data? {
-        if let exact = files[path] {
-            return exact
-        }
-
-        let normalized = normalizePath(path)
-
-        if let hit = files[normalized] {
-            return hit
-        }
-
-        let lowered = normalized.lowercased()
-
-        for (key, value) in files where key.lowercased() == lowered {
-            return value
-        }
-
-        return nil
-    }
-
-    private static func resolvePath(base: String, href: String) -> String {
-        var cleaned = href.removingPercentEncoding ?? href
-
-        if cleaned.hasPrefix("/") {
-            cleaned.removeFirst()
-        }
-
-        if base.isEmpty {
-            return cleaned
-        }
-
-        return normalizePath(base + "/" + cleaned)
-    }
-
-    private static func normalizePath(_ path: String) -> String {
-        var result: [String] = []
-
-        for part in path.split(separator: "/").map(String.init) {
-            if part == ".." {
-                result.removeLast()
-            } else if part != "." && !part.isEmpty {
-                result.append(part)
-            }
-        }
-
-        return result.joined(separator: "/")
-    }
-
-    // MARK: Текст
-
-    private static func decodeString(_ data: Data) -> String {
-        if let text = String(data: data, encoding: .utf8) {
-            return text
-        }
-
-        if let text = String(data: data, encoding: cp1251) {
-            return text
+        // Windows-1251 (kCFStringEncodingWindowsCyrillic = 0x04E1)
+        let nsEncoding = CFStringConvertEncodingToNSStringEncoding(CFStringEncoding(0x04E1))
+        if let cyrillic = String(data: data, encoding: String.Encoding(rawValue: nsEncoding)) {
+            return normalize(cyrillic)
         }
 
         return String(decoding: data, as: UTF8.self)
     }
 
-    private static func normalizePlainText(_ text: String) -> String {
-        var result = text
-            .replacingOccurrences(of: "\r\n", with: "\n")
-            .replacingOccurrences(of: "\r", with: "\n")
+    // MARK: EPUB (лёгкий разбор ZIP без внешних зависимостей)
 
-        let lines = result
-            .components(separatedBy: "\n")
-            .map {
-                $0.replacingOccurrences(
-                    of: "\\s+",
-                    with: " ",
-                    options: .regularExpression
-                )
-                .trimmingCharacters(in: .whitespaces)
+    private static func text(fromEPUB data: Data) -> String {
+        let files = unzip(data)
+        var chapterTexts: [String] = []
+
+        if let opfPath = opfPath(in: files), let opfData = files[opfPath] {
+            let opfDirectory = (opfPath as NSString).deletingLastPathComponent
+            let opf = decodeString(opfData)
+
+            var hrefs: [String: String] = [:]
+            for tag in allMatches(in: opf, pattern: "<item\\b[^>]*>") {
+                guard let id = attribute("id", in: tag),
+                      let href = attribute("href", in: tag) else { continue }
+
+                let mediaType = attribute("media-type", in: tag) ?? ""
+                if mediaType.contains("html") || isHTMLFile(href) {
+                    hrefs[id] = resolve(href: href, relativeTo: opfDirectory)
+                }
             }
 
-        return lines.joined(separator: "\n")
-            .replacingOccurrences(of: "\n{3,}", with: "\n\n", options: .regularExpression)
-            .trimmingCharacters(in: .whitespacesAndNewlines)
+            for idref in allGroupMatches(in: opf, pattern: "<itemref\\b[^>]*idref\\s*=\\s*\"([^\"]+)\"") {
+                guard let href = hrefs[idref], let itemData = files[href] else { continue }
+                let html = decodeString(itemData)
+                let plain = plainText(fromHTML: html)
+                if !plain.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    chapterTexts.append(plain)
+                }
+            }
+        }
+
+        if chapterTexts.isEmpty {
+            // Резерв: склеить все HTML-файлы архива по порядку имён
+            let names = files.keys.filter { isHTMLFile($0) }.sorted()
+            for name in names {
+                guard let itemData = files[name] else { continue }
+                let html = decodeString(itemData)
+                let plain = plainText(fromHTML: html)
+                if !plain.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    chapterTexts.append(plain)
+                }
+            }
+        }
+
+        return normalize(chapterTexts.joined(separator: "\n\n"))
     }
 
-    // Превращает XHTML/HTML главу в читаемый текст
-    static func stripHTML(_ html: String) -> String {
-        var result = html
+    private static func opfPath(in files: [String: Data]) -> String? {
+        guard let containerData = files["META-INF/container.xml"] else { return nil }
+        let container = decodeString(containerData)
+        return firstGroup(in: container, pattern: "<rootfile\\b[^>]*full-path\\s*=\\s*\"([^\"]+)\"")
+    }
 
-        result = result.replacingOccurrences(
-            of: "(?is)<(script|style|head)[^>]*>.*?</\\1>",
+    private static func resolve(href: String, relativeTo base: String) -> String {
+        let trimmed = href.trimmingCharacters(in: .whitespaces)
+        if trimmed.hasPrefix("/") {
+            return String(trimmed.dropFirst())
+        }
+        if base.isEmpty {
+            return trimmed
+        }
+        return base + "/" + trimmed
+    }
+
+    private static func isHTMLFile(_ name: String) -> Bool {
+        let ext = (name as NSString).pathExtension.lowercased()
+        return ext == "xhtml" || ext == "html" || ext == "htm"
+    }
+
+    private static func decodeString(_ data: Data) -> String {
+        String(data: data, encoding: .utf8)
+            ?? String(data: data, encoding: .isoLatin1)
+            ?? String(decoding: data, as: UTF8.self)
+    }
+
+    // MARK: ZIP
+
+    private static func unzip(_ data: Data) -> [String: Data] {
+        let bytes = [UInt8](data)
+        var entries: [String: Data] = [:]
+        var offset = 0
+
+        func u32(_ index: Int) -> UInt32 {
+            guard index >= 0, index + 4 <= bytes.count else { return 0 }
+            return UInt32(bytes[index])
+                | (UInt32(bytes[index + 1]) << 8)
+                | (UInt32(bytes[index + 2]) << 16)
+                | (UInt32(bytes[index + 3]) << 24)
+        }
+
+        func u16(_ index: Int) -> UInt16 {
+            guard index >= 0, index + 2 <= bytes.count else { return 0 }
+            return UInt16(bytes[index]) | (UInt16(bytes[index + 1]) << 8)
+        }
+
+        while offset + 30 <= bytes.count {
+            guard u32(offset) == 0x04034B50 else { break }
+
+            let method = u16(offset + 8)
+            let compressedSize = Int(u32(offset + 18))
+            let uncompressedSize = Int(u32(offset + 22))
+            let nameLength = Int(u16(offset + 26))
+            let extraLength = Int(u16(offset + 28))
+
+            let nameStart = offset + 30
+            guard nameStart + nameLength <= bytes.count else { break }
+            let nameBytes = Array(bytes[nameStart..<(nameStart + nameLength)])
+            let name = String(decoding: nameBytes, as: UTF8.self)
+
+            let dataStart = nameStart + nameLength + extraLength
+            guard dataStart + compressedSize <= bytes.count else { break }
+
+            if uncompressedSize > 0 {
+                let payload = Data(bytes[dataStart..<(dataStart + compressedSize)])
+                switch method {
+                case 0:
+                    entries[name] = payload
+                case 8:
+                    entries[name] = inflate(payload)
+                default:
+                    break
+                }
+            }
+
+            if compressedSize == 0 {
+                offset = dataStart
+            } else {
+                offset = dataStart + compressedSize
+            }
+        }
+
+        return entries
+    }
+
+    private static func inflate(_ data: Data) -> Data? {
+        do {
+            return try (data as NSData).decompressed(using: .zlib) as Data
+        } catch {
+            return nil
+        }
+    }
+
+    // MARK: HTML -> обычный текст
+
+    static func plainText(fromHTML html: String) -> String {
+        var text = html
+
+        text = text.replacingOccurrences(
+            of: "<(script|style)[^>]*>.*?</\\1>",
             with: " ",
-            options: .regularExpression
+            options: [.regularExpression, .caseInsensitive]
         )
-        result = result.replacingOccurrences(
-            of: "(?i)</(p|div|h[1-6]|li|tr|blockquote)>",
+
+        text = text.replacingOccurrences(
+            of: "<br[^>]*>|</p>|</div>|</h[1-6]>|</li>|</tr>",
             with: "\n",
-            options: .regularExpression
+            options: [.regularExpression, .caseInsensitive]
         )
-        result = result.replacingOccurrences(
-            of: "(?i)<br[^>]*>",
-            with: "\n",
-            options: .regularExpression
-        )
-        result = result.replacingOccurrences(
+
+        text = text.replacingOccurrences(
             of: "<[^>]+>",
             with: "",
             options: .regularExpression
         )
 
-        result = decodeEntities(result)
+        text = decodeNumericEntities(text)
+        text = decodeNamedEntities(text)
 
-        let lines = result
-            .components(separatedBy: "\n")
-            .map {
-                $0.replacingOccurrences(
-                    of: "\\s+",
-                    with: " ",
-                    options: .regularExpression
-                )
-                .trimmingCharacters(in: .whitespaces)
-            }
-            .filter { !$0.isEmpty }
-
-        return lines.joined(separator: "\n\n")
+        return text
     }
 
-    private static func decodeEntities(_ string: String) -> String {
-        var result = replaceRegex(string, pattern: "&#(\\d+);") { value in
-            guard let code = UInt32(value), let scalar = Unicode.Scalar(code) else {
-                return ""
+    private static func decodeNumericEntities(_ text: String) -> String {
+        var output = ""
+        var index = text.startIndex
+
+        while index < text.endIndex {
+            if text[index] == "&" {
+                let next = text.index(after: index)
+                if next < text.endIndex, text[next] == "#" {
+                    var probe = text.index(after: next)
+                    var semicolon: String.Index?
+                    var steps = 0
+
+                    while probe < text.endIndex, steps < 12 {
+                        if text[probe] == ";" {
+                            semicolon = probe
+                            break
+                        }
+                        probe = text.index(after: probe)
+                        steps += 1
+                    }
+
+                    if let semicolon = semicolon {
+                        let bodyStart = text.index(after: next)
+                        var body = String(text[bodyStart..<semicolon])
+                        var radix = 10
+
+                        if body.hasPrefix("x") || body.hasPrefix("X") {
+                            body.removeFirst()
+                            radix = 16
+                        }
+
+                        if let value = UInt32(body, radix: radix),
+                           let scalar = Unicode.Scalar(value) {
+                            output.unicodeScalars.append(scalar)
+                            index = text.index(after: semicolon)
+                            continue
+                        }
+                    }
+                }
             }
-            return String(Character(scalar))
+
+            output.append(text[index])
+            index = text.index(after: index)
         }
 
-        result = replaceRegex(result, pattern: "&#x([0-9a-fA-F]+);") { value in
-            guard
-                let code = UInt32(value, radix: 16),
-                let scalar = Unicode.Scalar(code)
-            else {
-                return ""
-            }
-            return String(Character(scalar))
-        }
+        return output
+    }
 
-        let named: [String: String] = [
-            "amp": "&",
-            "lt": "<",
-            "gt": ">",
-            "quot": "\"",
-            "apos": "'",
-            "nbsp": "\u{00A0}",
-            "mdash": "\u{2014}",
-            "ndash": "\u{2013}",
-            "hellip": "\u{2026}",
-            "laquo": "\u{00AB}",
-            "raquo": "\u{00BB}",
-            "ldquo": "\u{201C}",
-            "rdquo": "\u{201D}",
-            "lsquo": "\u{2018}",
-            "rsquo": "\u{2019}",
-            "middot": "\u{00B7}",
-            "bull": "\u{2022}"
+    private static func decodeNamedEntities(_ text: String) -> String {
+        let entities: [String: String] = [
+            "&amp;": "&",
+            "&lt;": "<",
+            "&gt;": ">",
+            "&quot;": "\"",
+            "&apos;": "'",
+            "&#39;": "'",
+            "&nbsp;": " ",
+            "&mdash;": "—",
+            "&ndash;": "–",
+            "&hellip;": "…",
+            "&laquo;": "«",
+            "&raquo;": "»",
+            "&ldquo;": "“",
+            "&rdquo;": "”",
+            "&lsquo;": "‘",
+            "&rsquo;": "’",
+            "&bdquo;": "„"
         ]
 
-        result = replaceRegex(result, pattern: "&([a-zA-Z]+);") { value in
-            named[value] ?? ""
+        var result = text
+        for (entity, character) in entities {
+            result = result.replacingOccurrences(of: entity, with: character)
         }
-
         return result
     }
 
-    private static func replaceRegex(
-        _ string: String,
-        pattern: String,
-        transform: (String) -> String
-    ) -> String {
-        guard
-            let regex = try? NSRegularExpression(pattern: pattern),
-            !string.isEmpty
-        else {
-            return string
-        }
+    private static func normalize(_ text: String) -> String {
+        var result = text
+            .replacingOccurrences(of: "\r\n", with: "\n")
+            .replacingOccurrences(of: "\r", with: "\n")
 
-        let nsString = string as NSString
-        let range = NSRange(location: 0, length: nsString.length)
-        var pieces: [String] = []
-        var cursor = 0
+        result = result.replacingOccurrences(
+            of: "[ \\t\\f]+",
+            with: " ",
+            options: .regularExpression
+        )
 
-        for match in regex.matches(in: string, range: range) {
-            pieces.append(
-                nsString.substring(
-                    with: NSRange(location: cursor, length: match.range.location - cursor)
-                )
-            )
-            pieces.append(transform(nsString.substring(with: match.range(at: 1))))
-            cursor = match.range.location + match.range.length
-        }
+        result = result.replacingOccurrences(
+            of: " ?\n ?",
+            with: "\n",
+            options: .regularExpression
+        )
 
-        pieces.append(nsString.substring(from: cursor))
+        result = result.replacingOccurrences(
+            of: "\\n{3,}",
+            with: "\n\n",
+            options: .regularExpression
+        )
 
-        return pieces.joined()
+        return result.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
-    private static func regexMatches(in string: String, pattern: String) -> [String] {
-        guard let regex = try? NSRegularExpression(pattern: pattern) else {
-            return []
-        }
+    // MARK: Регулярные выражения
 
-        let nsString = string as NSString
-        return regex
-            .matches(
-                in: string,
-                range: NSRange(location: 0, length: nsString.length)
-            )
-            .map { nsString.substring(with: $0.range) }
+    private static func regex(_ pattern: String) -> NSRegularExpression? {
+        try? NSRegularExpression(
+            pattern: pattern,
+            options: [.caseInsensitive, .dotMatchesLineSeparators]
+        )
     }
 
-    private static func firstGroup(in string: String, pattern: String) -> String? {
-        guard let regex = try? NSRegularExpression(pattern: pattern) else {
+    private static func firstGroup(in text: String, pattern: String, group: Int = 1) -> String? {
+        guard let expression = regex(pattern) else { return nil }
+        let range = NSRange(text.startIndex..., in: text)
+
+        guard let match = expression.firstMatch(in: text, range: range),
+              match.numberOfRanges > group,
+              let groupRange = Range(match.range(at: group), in: text) else {
             return nil
         }
 
-        let nsString = string as NSString
+        return String(text[groupRange])
+    }
 
-        guard
-            let match = regex.firstMatch(
-                in: string,
-                range: NSRange(location: 0, length: nsString.length)
-            ),
-            match.range(at: 1).location != NSNotFound
-        else {
-            return nil
+    private static func allGroupMatches(in text: String, pattern: String, group: Int = 1) -> [String] {
+        guard let expression = regex(pattern) else { return [] }
+        let range = NSRange(text.startIndex..., in: text)
+
+        return expression.matches(in: text, range: range).compactMap { match in
+            guard match.numberOfRanges > group,
+                  let groupRange = Range(match.range(at: group), in: text) else { return nil }
+            return String(text[groupRange])
         }
+    }
 
-        return nsString.substring(with: match.range(at: 1))
+    private static func allMatches(in text: String, pattern: String) -> [String] {
+        guard let expression = regex(pattern) else { return [] }
+        let range = NSRange(text.startIndex..., in: text)
+
+        return expression.matches(in: text, range: range).compactMap { match in
+            guard let matchRange = Range(match.range, in: text) else { return nil }
+            return String(text[matchRange])
+        }
     }
 
     private static func attribute(_ name: String, in tag: String) -> String? {
-        firstGroup(
-            in: tag,
-            pattern: #"\b\#(name)\s*=\s*"([^"]*)""#
-        ) ?? firstGroup(
-            in: tag,
-            pattern: #"\b\#(name)\s*=\s*'([^']*)'"#
-        )
+        firstGroup(in: tag, pattern: "\\b" + name + "\\s*=\\s*\"([^\"]*)\"")
     }
 }
 
-extension UInt32 {
-    // 0xFFFFFFFF в поле размера — признак ZIP64, такие записи пропускаем
-    var isNullMax: Bool {
-        self == 0xFFFFFFFF
-    }
-}
-
-// MARK: - Экран чтения электронных книг
+// MARK: - Экран чтения
 
 struct ReadingScreenView: View {
     @ObservedObject var store: EBookStore
     let onBack: () -> Void
 
-    @EnvironmentObject private var theme: PlayTheme
+    @ObservedObject private var theme = PlayTheme.shared
 
-    @State private var selectedBook: EBook?
-    @State private var chapters: [String] = []
     @State private var isMenuOpen = false
-    @State private var isShowingImporter = false
-    @State private var isBusy = false
-    @State private var errorMessage = ""
-
-    // EPUB объявляем по UTI, чтобы не зависеть от варианта SDK
-    private let bookTypes: [UTType] = [
-        UTType("org.idpf.epub-container"),
-        .plainText
-    ]
-    .compactMap { $0 }
+    @State private var showingImporter = false
+    @State private var currentBook: EBook?
+    @State private var currentText = ""
 
     var body: some View {
         ZStack {
-            if let book = selectedBook {
-                readerView(book: book)
-            } else {
-                bookListView
-            }
+            VStack(spacing: 0) {
+                header
 
-            if isBusy {
-                ZStack {
-                    Color.black.opacity(0.35)
+                if store.isLoading {
+                    Spacer()
                     ProgressView()
-                        .progressViewStyle(.circular)
                         .tint(theme.ui)
-                        .scaleEffect(1.3)
+                    Spacer()
+                } else if let book = currentBook {
+                    bookContent(book)
+                } else {
+                    libraryContent
                 }
-                .transition(.opacity)
             }
 
-            menuOverlay
+            menuLayer
+
+            if let error = store.errorMessage {
+                VStack {
+                    Spacer()
+
+                    Text(error)
+                        .font(AppFont.regular(13))
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 10)
+                        .background(Color.red.opacity(0.75))
+                        .cornerRadius(12)
+                        .padding(.bottom, 24)
+                }
+            }
         }
-        .foregroundStyle(.white)
-        .animation(.easeOut(duration: 0.2), value: isBusy)
         .fileImporter(
-            isPresented: $isShowingImporter,
-            allowedContentTypes: bookTypes,
+            isPresented: $showingImporter,
+            allowedContentTypes: [.epub, .plainText],
             allowsMultipleSelection: false
         ) { result in
-            importBook(result)
+            if let book = store.importBook(from: result) {
+                withAnimation(.easeOut(duration: 0.2)) {
+                    open(book)
+                }
+            }
         }
     }
 
-    // MARK: Кнопки верхней панели
+    // MARK: Шапка (кнопка «Назад» слева, меню справа — стиль и отступы главного экрана)
 
-    private var backOverlay: some View {
-        VStack {
-            HStack {
-                Button {
-                    if selectedBook != nil {
-                        withAnimation(.easeOut(duration: 0.2)) {
-                            selectedBook = nil
-                            chapters = []
-                        }
+    private var header: some View {
+        HStack {
+            Button {
+                withAnimation(.easeOut(duration: 0.2)) {
+                    if currentBook != nil {
+                        closeBook()
                     } else {
                         onBack()
                     }
-                } label: {
-                    Image(systemName: "arrow.left")
-                        .font(.system(size: 24, weight: .bold))
-                        .foregroundStyle(theme.ui)
-                        .frame(width: 44, height: 44)
-                        .background(Color.white.opacity(0.12))
-                        .clipShape(Circle())
                 }
-                .buttonStyle(.plain)
-
-                Spacer()
+            } label: {
+                Image(systemName: "arrow.left")
+                    .font(.system(size: 24, weight: .bold))
+                    .foregroundStyle(theme.ui)
+                    .frame(width: 44, height: 44)
+                    .background(Color.white.opacity(0.12))
+                    .clipShape(Circle())
             }
-            .padding(.top, 12)
-            .padding(.horizontal, 18)
+            .buttonStyle(.plain)
+            .padding(.leading, 18)
 
             Spacer()
-        }
-    }
 
-    private var dotsOverlay: some View {
-        VStack {
-            HStack {
-                Spacer()
-
-                Button {
-                    withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) {
-                        isMenuOpen.toggle()
-                    }
-                } label: {
-                    Image(systemName: "ellipsis")
-                        .font(.system(size: 24, weight: .bold))
-                        .foregroundStyle(theme.ui)
-                        .frame(width: 44, height: 44)
-                        .background(Color.white.opacity(0.12))
-                        .clipShape(Circle())
+            Button {
+                withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) {
+                    isMenuOpen.toggle()
                 }
+            } label: {
+                Image(systemName: "ellipsis")
+                    .font(.system(size: 24, weight: .bold))
+                    .foregroundStyle(theme.ui)
+                    .frame(width: 44, height: 44)
+                    .background(Color.white.opacity(0.12))
+                    .clipShape(Circle())
             }
-            .padding(.top, 12)
             .padding(.trailing, 18)
-
-            Spacer()
         }
+        .padding(.top, 12)
     }
 
-    // Меню из трёх точек — в том же стиле и с теми же отступами,
-    // что и меню на главном экране (top 66 / trailing 18)
-    private var menuOverlay: some View {
+    // MARK: Меню из трёх точек (позиция как у меню на главном экране)
+
+    private var menuLayer: some View {
         ZStack {
             if isMenuOpen {
                 Rectangle()
@@ -814,14 +613,13 @@ struct ReadingScreenView: View {
                         CustomMenu(
                             title: nil,
                             options: [
-                                CustomMenuOption(
-                                    title: "Добавить книгу",
-                                    systemImage: "doc.badge.plus"
-                                ) {
-                                    withAnimation(.easeOut(duration: 0.2)) {
-                                        isMenuOpen = false
-                                    }
-                                    isShowingImporter = true
+                                CustomMenuOption(title: "Добавить книгу", systemImage: "plus") {
+                                    isMenuOpen = false
+                                    showingImporter = true
+                                },
+                                CustomMenuOption(title: "К списку книг", systemImage: "books.vertical") {
+                                    isMenuOpen = false
+                                    closeBook()
                                 }
                             ],
                             selectedIndex: nil,
@@ -841,192 +639,99 @@ struct ReadingScreenView: View {
             }
         }
         .animation(.spring(response: 0.3, dampingFraction: 0.85), value: isMenuOpen)
+        .allowsHitTesting(true)
     }
 
     // MARK: Список книг
 
-    private var bookListView: some View {
-        ZStack {
-            backOverlay
-            dotsOverlay
+    private var libraryContent: some View {
+        ScrollView(showsIndicators: false) {
+            if store.books.isEmpty {
+                VStack(spacing: 14) {
+                    Image(systemName: "book.fill")
+                        .font(.system(size: 52))
+                        .foregroundStyle(theme.ui)
 
-            VStack(alignment: .leading, spacing: 0) {
-                Text("Мои книги")
-                    .font(AppFont.bold(26))
-                    .foregroundStyle(.white)
-                    .padding(.top, 72)
-
-                if store.books.isEmpty {
-                    VStack(spacing: 14) {
-                        Image(systemName: "book.closed")
-                            .font(.system(size: 44, weight: .light))
-                            .foregroundStyle(theme.ui.opacity(0.7))
-
-                        Text("Пока нет электронных книг")
-                            .font(AppFont.bold(17))
-                            .foregroundStyle(.white.opacity(0.9))
-
-                        Text("Нажмите на меню \u{22EF} сверху\nи выберите «Добавить книгу»")
-                            .font(AppFont.regular(14))
-                            .foregroundStyle(.white.opacity(0.6))
-                            .multilineTextAlignment(.center)
-                    }
-                    .frame(maxWidth: .infinity)
-                    .padding(.top, 90)
-                } else {
-                    ScrollView {
-                        VStack(spacing: 12) {
-                            ForEach(store.books) { book in
-                                bookRow(book)
-                            }
-                        }
-                        .padding(.top, 20)
-                        .padding(.bottom, 40)
-                    }
-                    .padding(.top, 8)
-                }
-
-                if !errorMessage.isEmpty {
-                    Text(errorMessage)
-                        .foregroundStyle(.red)
-                        .font(AppFont.regular(13))
-                        .padding(.top, 10)
-                }
-
-                Spacer()
-            }
-            .padding(.horizontal, 24)
-        }
-    }
-
-    private func bookRow(_ book: EBook) -> some View {
-        Button {
-            open(book)
-        } label: {
-            HStack(spacing: 14) {
-                Image(systemName: book.fileName.hasSuffix(".epub") ? "book.closed" : "doc.text")
-                    .font(.system(size: 22))
-                    .foregroundStyle(theme.ui)
-                    .frame(width: 44, height: 44)
-                    .background(Color.white.opacity(0.08))
-                    .clipShape(RoundedRectangle(cornerRadius: 12))
-
-                VStack(alignment: .leading, spacing: 3) {
-                    Text(book.title)
-                        .font(AppFont.bold(16))
+                    Text("Книги не добавлены")
+                        .font(AppFont.bold(22))
                         .foregroundStyle(.white)
-                        .lineLimit(1)
 
-                    Text(book.fileName.hasSuffix(".epub") ? "EPUB" : "TXT")
-                        .font(AppFont.regular(12))
-                        .foregroundStyle(.white.opacity(0.55))
+                    Text("Добавьте EPUB или TXT через меню «⋯»")
+                        .font(AppFont.regular(15))
+                        .foregroundStyle(.white.opacity(0.7))
+                        .multilineTextAlignment(.center)
+                        .padding(.horizontal, 30)
                 }
+                .padding(.top, 90)
+            } else {
+                VStack(spacing: 12) {
+                    ForEach(store.books) { book in
+                        Button {
+                            withAnimation(.easeOut(duration: 0.2)) {
+                                open(book)
+                            }
+                        } label: {
+                            HStack {
+                                Image(systemName: "text.book.closed")
+                                    .font(.system(size: 22))
+                                    .foregroundStyle(theme.ui)
+                                    .frame(width: 40, height: 40)
+                                    .background(Color.white.opacity(0.12))
+                                    .clipShape(Circle())
 
-                Spacer()
+                                Text(book.title)
+                                    .font(AppFont.bold(17))
+                                    .foregroundStyle(.white)
+                                    .lineLimit(1)
 
-                Image(systemName: "chevron.right")
-                    .font(.system(size: 13, weight: .semibold))
-                    .foregroundStyle(.white.opacity(0.4))
+                                Spacer()
+                            }
+                            .padding(14)
+                            .background(Color.white.opacity(0.08))
+                            .cornerRadius(18)
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+                .padding(.horizontal, 20)
+                .padding(.top, 14)
             }
-            .padding(.horizontal, 14)
-            .padding(.vertical, 10)
-            .background(
-                RoundedRectangle(cornerRadius: 14)
-                    .fill(Color.white.opacity(0.07))
-            )
         }
-        .buttonStyle(.plain)
     }
 
-    // MARK: Чтение книги
+    // MARK: Открытая книга
 
-    private func readerView(book: EBook) -> some View {
-        ZStack {
-            VStack(spacing: 0) {
-                // Название книги в центре верхней панели
-                Text(book.title)
-                    .font(AppFont.italic(15))
-                    .foregroundStyle(.white.opacity(0.75))
-                    .lineLimit(1)
-                    .padding(.top, 16)
-                    .padding(.horizontal, 68)
+    private func bookContent(_ book: EBook) -> some View {
+        VStack(spacing: 6) {
+            Text(book.title)
+                .font(AppFont.bold(19))
+                .foregroundStyle(theme.ui)
+                .lineLimit(2)
+                .multilineTextAlignment(.center)
+                .padding(.horizontal, 60)
 
-                ScrollView {
-                    VStack(alignment: .leading, spacing: 26) {
-                        ForEach(chapters.indices, id: \.self) { index in
-                            if chapters.count > 1 {
-                                Text("Глава \(index + 1)")
-                                    .font(AppFont.bold(17))
-                                    .foregroundStyle(theme.ui)
-                            }
-
-                            Text(chapters[index])
-                                .font(AppFont.regular(17))
-                                .foregroundStyle(.white.opacity(0.92))
-                                .lineSpacing(7)
-                        }
-                    }
-                    .padding(.top, 22)
-                    .padding(.bottom, 60)
-                    .padding(.horizontal, 24)
-                }
+            ScrollView(showsIndicators: false) {
+                Text(currentText.isEmpty ? "Текст книги не найден" : currentText)
+                    .font(AppFont.regular(18))
+                    .lineSpacing(8)
+                    .foregroundStyle(.white)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, 22)
+                    .padding(.bottom, 24)
             }
-
-            backOverlay
-            dotsOverlay
         }
+        .padding(.top, 6)
     }
 
     // MARK: Действия
 
     private func open(_ book: EBook) {
-        isBusy = true
-        errorMessage = ""
-
-        Task {
-            do {
-                let loaded = try store.loadChapters(for: book)
-
-                withAnimation(.easeOut(duration: 0.2)) {
-                    chapters = loaded
-                    selectedBook = book
-                }
-            } catch {
-                errorMessage = error.localizedDescription
-            }
-
-            isBusy = false
-        }
+        currentBook = book
+        currentText = store.text(for: book) ?? ""
     }
 
-    private func importBook(_ result: Result<[URL], Error>) {
-        switch result {
-        case .success(let urls):
-            guard let url = urls.first else {
-                return
-            }
-
-            isBusy = true
-            errorMessage = ""
-
-            Task {
-                do {
-                    let book = try store.importBook(from: url)
-                    let loaded = try store.loadChapters(for: book)
-
-                    withAnimation(.easeOut(duration: 0.2)) {
-                        chapters = loaded
-                        selectedBook = book
-                    }
-                } catch {
-                    store.reload()
-                    errorMessage = error.localizedDescription
-                }
-
-                isBusy = false
-            }
-        case .failure:
-            errorMessage = "Не удалось выбрать файл"
-        }
+    private func closeBook() {
+        currentBook = nil
+        currentText = ""
     }
 }
