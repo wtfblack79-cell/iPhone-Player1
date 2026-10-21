@@ -111,22 +111,20 @@ final class EBookStore: ObservableObject {
 
     // MARK: Чтение
 
-    // MARK: Удаление
-
-    func removeBook(_ book: EBook) {
-        books.removeAll { $0.id == book.id }
-
-        try? FileManager.default.removeItem(
-            at: directory.appendingPathComponent(book.fileName)
-        )
-
-        saveIndex()
-    }
-
     func text(for book: EBook) -> String? {
         let url = directory.appendingPathComponent(book.fileName)
         guard let data = try? Data(contentsOf: url) else { return nil }
         return EBookParser.parse(data: data, fileExtension: (book.fileName as NSString).pathExtension.lowercased())
+    }
+
+    // MARK: Удаление
+
+    func removeBook(_ book: EBook) {
+        books.removeAll { $0.id == book.id }
+        saveIndex()
+
+        let url = directory.appendingPathComponent(book.fileName)
+        try? FileManager.default.removeItem(at: url)
     }
 }
 
@@ -504,8 +502,8 @@ enum EBookParser {
 
 struct ReadingScreenView: View {
     @ObservedObject var store: EBookStore
-    var initialBook: EBook? = nil
     let onBack: () -> Void
+    var initialBook: EBook? = nil
 
     @ObservedObject private var theme = PlayTheme.shared
 
@@ -548,11 +546,6 @@ struct ReadingScreenView: View {
                 }
             }
         }
-        .onAppear {
-            if let book = initialBook, currentBook == nil {
-                open(book)
-            }
-        }
         .fileImporter(
             isPresented: $showingImporter,
             allowedContentTypes: [.epub, .plainText],
@@ -562,6 +555,11 @@ struct ReadingScreenView: View {
                 withAnimation(.easeOut(duration: 0.2)) {
                     open(book)
                 }
+            }
+        }
+        .onAppear {
+            if let book = initialBook, currentBook == nil {
+                open(book)
             }
         }
     }
@@ -633,7 +631,9 @@ struct ReadingScreenView: View {
                             options: [
                                 CustomMenuOption(title: "Добавить книгу", systemImage: "plus") {
                                     isMenuOpen = false
-                                    showingImporter = true
+                                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
+                                        showingImporter = true
+                                    }
                                 },
                                 CustomMenuOption(title: "К списку книг", systemImage: "books.vertical") {
                                     isMenuOpen = false
