@@ -163,6 +163,7 @@ struct ContentView: View {
     @State private var progress: Double = 0
     @State private var duration: Double = 0
     @State private var speed: Float = 1.0
+    @State private var showingImporter = false
     @State private var libraryFiles: [URL] = []
     @State private var currentScreenIsLibrary = false
     @State private var currentScreenIsSettings = false
@@ -220,8 +221,6 @@ struct ContentView: View {
         "wav", "aiff", "caf", "flac"
     ]
 
-    private let bookExtensions: Set<String> = ["fb2", "epub", "txt"]
-
     private let speedOptions: [Float] = [0.75, 1.0, 1.25, 1.5, 2.0]
     private let sleepOptions: [Int] = [0, 5, 10, 15, 30, 45, 60]
 
@@ -269,12 +268,12 @@ struct ContentView: View {
 
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
                 let sharedDefaults = UserDefaults(suiteName: "group.com.personal.iphoneplayer")
-                if let path = sharedDefaults?.string(forKey: "lastSharedAudioPath") {
-                    openSharedAudio(URL(fileURLWithPath: path))
-                    sharedDefaults?.removeObject(forKey: "lastSharedAudioPath")
-                } else if let path = sharedDefaults?.string(forKey: "lastSharedBookPath") {
+                if let path = sharedDefaults?.string(forKey: "lastSharedBookPath") {
                     importIncomingBook(URL(fileURLWithPath: path))
                     sharedDefaults?.removeObject(forKey: "lastSharedBookPath")
+                } else if let path = sharedDefaults?.string(forKey: "lastSharedAudioPath") {
+                    openSharedAudio(URL(fileURLWithPath: path))
+                    sharedDefaults?.removeObject(forKey: "lastSharedAudioPath")
                 } else {
                     restoreLastAudio()
                 }
@@ -284,15 +283,17 @@ struct ContentView: View {
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
                 if url.scheme == "playbook" {
                     let sharedDefaults = UserDefaults(suiteName: "group.com.personal.iphoneplayer")
-                    if let path = sharedDefaults?.string(forKey: "lastSharedAudioPath") {
-                        openSharedAudio(URL(fileURLWithPath: path))
-                        sharedDefaults?.removeObject(forKey: "lastSharedAudioPath")
-                    } else if let path = sharedDefaults?.string(forKey: "lastSharedBookPath") {
+                    if let path = sharedDefaults?.string(forKey: "lastSharedBookPath") {
                         importIncomingBook(URL(fileURLWithPath: path))
                         sharedDefaults?.removeObject(forKey: "lastSharedBookPath")
+                    } else if let path = sharedDefaults?.string(forKey: "lastSharedAudioPath") {
+                        openSharedAudio(URL(fileURLWithPath: path))
+                        sharedDefaults?.removeObject(forKey: "lastSharedAudioPath")
                     }
+                } else if ["fb2", "epub", "txt"].contains(url.pathExtension.lowercased()) {
+                    importIncomingBook(url)
                 } else {
-                    importIncomingFile(url)
+                    importIncomingAudio(url)
                 }
             }
         }
@@ -1743,34 +1744,6 @@ struct ContentView: View {
         }
     }
 
-    // Файл пришёл в приложение извне: «Поделиться» → «Скопировать в PlayBook»,
-    // «Поделиться» в Файлах, почта и т. д. Маршрутизируем по расширению.
-
-    private func importIncomingFile(_ url: URL) {
-        let ext = url.pathExtension.lowercased()
-
-        if audioExtensions.contains(ext) {
-            importIncomingAudio(url)
-            return
-        }
-
-        if bookExtensions.contains(ext) {
-            importIncomingBook(url)
-            return
-        }
-
-        errorMessage = "Этот формат файла не поддерживается."
-    }
-
-    private func importIncomingBook(_ url: URL) {
-        guard ebookStore.importBook(from: url) != nil else { return }
-
-        refreshLibrary()
-        currentScreenIsLibrary = true
-        currentScreenIsReading = false
-        errorMessage = ""
-    }
-
     private func importIncomingAudio(_ url: URL) {
         let didAccess = url.startAccessingSecurityScopedResource()
         defer {
@@ -1820,6 +1793,27 @@ struct ContentView: View {
             errorMessage = ""
         } catch {
             errorMessage = "Не удалось добавить аудио: \(error.localizedDescription)"
+        }
+    }
+
+    private func importIncomingBook(_ url: URL) {
+        let didAccess = url.startAccessingSecurityScopedResource()
+        defer {
+            if didAccess {
+                url.stopAccessingSecurityScopedResource()
+            }
+        }
+
+        guard let book = ebookStore.importBook(from: url) else {
+            errorMessage = ebookStore.errorMessage ?? "Не удалось добавить книгу."
+            return
+        }
+
+        readingBook = book
+        readingOriginIsLibrary = true
+        currentScreenIsLibrary = false
+        withAnimation(.easeOut(duration: 0.2)) {
+            currentScreenIsReading = true
         }
     }
 
