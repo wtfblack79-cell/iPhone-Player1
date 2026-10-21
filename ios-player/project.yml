@@ -54,12 +54,6 @@ targets:
               - public.aiff-audio
               - com.apple.coreaudio-format
               - org.xiph.flac
-          - CFBundleTypeName: FictionBook 2 (FB2)
-            CFBundleTypeRole: Viewer
-            LSHandlerRank: Owner
-            LSItemContentTypes:
-              - com.fictionbook.fb2
-              - public.xml
           - CFBundleTypeName: Electronic Publication (EPUB)
             CFBundleTypeRole: Viewer
             LSHandlerRank: Owner
@@ -70,15 +64,6 @@ targets:
             LSHandlerRank: Owner
             LSItemContentTypes:
               - public.plain-text
-        UTExportedTypeDeclarations:
-          - UTTypeIdentifier: com.fictionbook.fb2
-            UTTypeDescription: FictionBook 2
-            UTTypeConformsTo:
-              - public.xml
-            UTTypeTagSpecification:
-              public.filename-extension:
-                - fb2
-
 
   PlayBookShare:
     type: app-extension
