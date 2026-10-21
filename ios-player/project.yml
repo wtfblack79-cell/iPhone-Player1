@@ -112,18 +112,21 @@ targets:
                 SUBQUERY (
                   $extensionItem.attachments,
                   $attachment,
-                  ANY $attachment.registeredTypeIdentifiers UTI-CONFORMS-TO "public.audio" ||
-                  ANY $attachment.registeredTypeIdentifiers UTI-CONFORMS-TO "public.mp3" ||
-                  ANY $attachment.registeredTypeIdentifiers UTI-CONFORMS-TO "public.mpeg-4-audio" ||
-                  ANY $attachment.registeredTypeIdentifiers UTI-CONFORMS-TO "com.apple.m4a-audio" ||
-                  ANY $attachment.registeredTypeIdentifiers UTI-CONFORMS-TO "com.apple.m4b-audio" ||
-                  ANY $attachment.registeredTypeIdentifiers UTI-CONFORMS-TO "public.aac-audio" ||
-                  ANY $attachment.registeredTypeIdentifiers UTI-CONFORMS-TO "com.microsoft.waveform-audio" ||
-                  ANY $attachment.registeredTypeIdentifiers UTI-CONFORMS-TO "public.aiff-audio" ||
-                  ANY $attachment.registeredTypeIdentifiers UTI-CONFORMS-TO "com.apple.coreaudio-format" ||
-                  ANY $attachment.registeredTypeIdentifiers UTI-CONFORMS-TO "org.xiph.flac" ||
-                  ANY $attachment.registeredTypeIdentifiers UTI-CONFORMS-TO "com.fictionbook.fb2" ||
-                  ANY $attachment.registeredTypeIdentifiers UTI-CONFORMS-TO "org.idpf.epub-container" ||
-                  ANY $attachment.registeredTypeIdentifiers UTI-CONFORMS-TO "public.plain-text"
+                  (
+                    ANY $attachment.registeredTypeIdentifiers UTI-CONFORMS-TO "public.audio" ||
+                    ANY $attachment.registeredTypeIdentifiers UTI-CONFORMS-TO "public.mp3" ||
+                    ANY $attachment.registeredTypeIdentifiers UTI-CONFORMS-TO "public.mpeg-4-audio" ||
+                    ANY $attachment.registeredTypeIdentifiers UTI-CONFORMS-TO "com.apple.m4a-audio" ||
+                    ANY $attachment.registeredTypeIdentifiers UTI-CONFORMS-TO "com.apple.m4b-audio" ||
+                    ANY $attachment.registeredTypeIdentifiers UTI-CONFORMS-TO "public.aac-audio" ||
+                    ANY $attachment.registeredTypeIdentifiers UTI-CONFORMS-TO "com.microsoft.waveform-audio" ||
+                    ANY $attachment.registeredTypeIdentifiers UTI-CONFORMS-TO "public.aiff-audio" ||
+                    ANY $attachment.registeredTypeIdentifiers UTI-CONFORMS-TO "com.apple.coreaudio-format" ||
+                    ANY $attachment.registeredTypeIdentifiers UTI-CONFORMS-TO "org.xiph.flac" ||
+                    ANY $attachment.registeredTypeIdentifiers UTI-CONFORMS-TO "com.fictionbook.fb2" ||
+                    ANY $attachment.registeredTypeIdentifiers UTI-CONFORMS-TO "org.idpf.epub-container" ||
+                    ANY $attachment.registeredTypeIdentifiers UTI-CONFORMS-TO "public.plain-text" ||
+                    ANY $attachment.registeredTypeIdentifiers UTI-CONFORMS-TO "public.xml"
+                  )
                 ).@count > 0
               ).@count > 0
