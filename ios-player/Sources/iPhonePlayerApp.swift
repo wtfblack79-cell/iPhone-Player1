@@ -574,10 +574,10 @@ struct ContentView: View {
         ZStack {
             if currentScreenIsColor || currentScreenIsSettings {
                 backgroundLayer(image: settingsBackground)
-            } else if currentScreenIsReading {
-                backgroundLayer(image: homeBackground)
             } else if currentScreenIsLibrary {
                 backgroundLayer(image: libraryBackground)
+            } else if currentScreenIsReading {
+                backgroundLayer(image: homeBackground)
             } else {
                 backgroundLayer(image: homeBackground)
             }
