@@ -594,6 +594,7 @@ struct ReadingScreenView: View {
     @ObservedObject private var theme = PlayTheme.shared
 
     @State private var isMenuOpen = false
+    @State private var showingImporter = false
     @State private var currentBook: EBook?
     @State private var currentText = ""
 
@@ -628,6 +629,17 @@ struct ReadingScreenView: View {
                         .background(Color.red.opacity(0.75))
                         .cornerRadius(12)
                         .padding(.bottom, 24)
+                }
+            }
+        }
+        .fileImporter(
+            isPresented: $showingImporter,
+            allowedContentTypes: [.epub, .plainText, EBookFileType.fb2],
+            allowsMultipleSelection: false
+        ) { result in
+            if let book = store.importBook(from: result) {
+                withAnimation(.easeOut(duration: 0.2)) {
+                    open(book)
                 }
             }
         }
@@ -703,6 +715,12 @@ struct ReadingScreenView: View {
                         CustomMenu(
                             title: nil,
                             options: [
+                                CustomMenuOption(title: "Добавить книгу", systemImage: "plus") {
+                                    isMenuOpen = false
+                                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
+                                        showingImporter = true
+                                    }
+                                },
                                 CustomMenuOption(title: "К списку книг", systemImage: "books.vertical") {
                                     isMenuOpen = false
                                     closeBook()
