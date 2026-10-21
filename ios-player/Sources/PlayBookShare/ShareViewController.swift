@@ -1,18 +1,14 @@
 import UIKit
 import UniformTypeIdentifiers
 
-final class ShareViewController: UIViewController {
+class ShareViewController: UIViewController {
 
-    // MARK: - Настройки (должны совпадать с SharedInbox.swift в приложении)
+    // MARK: - Константы (должны совпадать с SharedInbox.swift в основном приложении)
 
-    private enum Config {
-        static let appGroupID = "group.com.personal.iphoneplayer"
-        static let inboxFolderName = "SharedInbox"
-    }
+    private let appGroupID = "group.com.personal.iphoneplayer"
+    private let inboxFolderName = "Inbox"
 
-    // Типы, которые расширение принимает и кладёт в общую папку.
-    // Список аудио повторяет NSExtensionActivationRule из project.yml.
-    private let audioTypes: Set<String> = [
+    private let supportedTypes: Set<String> = [
         "public.audio",
         "public.mp3",
         "public.mpeg-4-audio",
@@ -22,10 +18,7 @@ final class ShareViewController: UIViewController {
         "com.microsoft.waveform-audio",
         "public.aiff-audio",
         "com.apple.coreaudio-format",
-        "org.xiph.flac"
-    ]
-
-    private let bookTypes: Set<String> = [
+        "org.xiph.flac",
         "com.fictionbook.fb2",
         "org.idpf.epub-container",
         "public.plain-text",
@@ -33,189 +26,233 @@ final class ShareViewController: UIViewController {
     ]
 
     private let statusLabel = UILabel()
+    private var pendingCount = 0
+    private var savedCount = 0
     private var finished = false
+
+    // MARK: - Жизненный цикл
 
     override func viewDidLoad() {
         super.viewDidLoad()
-
         setupUI()
-        importAttachments()
+        processAttachments()
     }
-
-    // MARK: - Интерфейс
 
     private func setupUI() {
         view.backgroundColor = .systemBlue
+
         statusLabel.textColor = .white
         statusLabel.font = .boldSystemFont(ofSize: 17)
         statusLabel.textAlignment = .center
         statusLabel.numberOfLines = 0
-        statusLabel.text = "Импорт в PlayBook…"
+        statusLabel.text = "Передача файлов…"
         statusLabel.frame = CGRect(x: 20, y: 150, width: 300, height: 250)
         statusLabel.autoresizingMask = [.flexibleWidth]
         view.addSubview(statusLabel)
     }
 
-    // MARK: - Импорт вложений
+    // MARK: - Обработка входящих файлов
 
-    private func importAttachments() {
-        let attachments = (extensionContext?.inputItems as? [NSExtensionItem] ?? [])
-            .flatMap { $0.attachments ?? [] }
-
-        guard !attachments.isEmpty else {
-            finish()
+    private func processAttachments() {
+        guard let extensionContext else {
+            fail("Не удалось получить контекст расширения")
             return
         }
 
-        let group = DispatchGroup()
-        let counter = Counter()
+        let items = (extensionContext.inputItems as? [NSExtensionItem]) ?? []
+        let attachments = items.flatMap { $0.attachments ?? [] }
 
-        for attachment in attachments {
-            guard let typeIdentifier = acceptedTypeIdentifier(of: attachment) else { continue }
-
-            group.enter()
-            attachment.loadFileRepresentation(forTypeIdentifier: typeIdentifier) { [weak self] tempURL, _ in
-                defer { group.leave() }
-
-                guard let self, let tempURL else { return }
-                if self.saveToInbox(tempURL: tempURL, attachment: attachment, typeIdentifier: typeIdentifier) {
-                    counter.increment()
-                }
-            }
+        guard !attachments.isEmpty else {
+            fail("Файлы не найдены")
+            return
         }
 
-        group.notify(queue: .main) { [weak self] in
-            guard let self else { return }
+        pendingCount = attachments.count
 
-            if counter.value > 0 {
-                self.statusLabel.text = "Файлы переданы в PlayBook"
-                self.openMainApp()
+        // Страховка: если система не ответит ни на один запрос — закрываемся сами
+        DispatchQueue.main.asyncAfter(deadline: .now() + 15) { [weak self] in
+            self?.finishIfPending()
+        }
+
+        for attachment in attachments {
+            let registered = attachment.registeredTypeIdentifiers
+
+            // Сначала пробуем наш тип напрямую,
+            // затем любой аудио-тип, затем общую файловую ссылку
+            let chosen = registered.first { supportedTypes.contains($0) }
+                ?? registered.first { UTType($0)?.conforms(to: .audio) ?? false }
+
+            if let type = chosen {
+                attachment.loadFileRepresentation(forTypeIdentifier: type) { [weak self] url, _ in
+                    DispatchQueue.main.async {
+                        guard let self else { return }
+                        if let url {
+                            self.saveFile(
+                                from: url,
+                                suggestedName: attachment.suggestedName,
+                                typeIdentifier: type
+                            )
+                        }
+                        self.attachmentDone()
+                    }
+                }
+            } else if registered.contains("public.file-url") {
+                attachment.loadItem(forTypeIdentifier: "public.file-url", options: nil) { [weak self] item, _ in
+                    DispatchQueue.main.async {
+                        guard let self else { return }
+                        if let url = Self.fileURL(from: item) {
+                            self.saveFile(
+                                from: url,
+                                suggestedName: attachment.suggestedName,
+                                typeIdentifier: nil
+                            )
+                        }
+                        self.attachmentDone()
+                    }
+                }
             } else {
-                self.statusLabel.text = "Не удалось скопировать файл"
-            }
-
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) { [weak self] in
-                self?.finish()
+                attachmentDone()
             }
         }
     }
 
-    // MARK: Выбор типа вложения
+    // MARK: - Сохранение файла в общую папку
 
-    private func acceptedTypeIdentifier(of attachment: NSItemProvider) -> String? {
-        let identifiers = attachment.registeredTypeIdentifiers
+    private func inboxDirectory() -> URL? {
+        guard let base = FileManager.default.containerURL(
+            forSecurityApplicationGroupIdentifier: appGroupID
+        ) else {
+            return nil
+        }
 
-        for identifier in identifiers where audioTypes.contains(identifier) {
-            return identifier
+        let inbox = base.appendingPathComponent(inboxFolderName, isDirectory: true)
+
+        do {
+            try FileManager.default.createDirectory(at: inbox, withIntermediateDirectories: true)
+            return inbox
+        } catch {
+            return nil
         }
-        for identifier in identifiers where bookTypes.contains(identifier) && identifier != "public.xml" {
-            return identifier
+    }
+
+    private func saveFile(from source: URL, suggestedName: String?, typeIdentifier: String?) {
+        guard let inbox = inboxDirectory() else { return }
+
+        var name = (suggestedName ?? source.lastPathComponent) as NSString
+        name = name.lastPathComponent as NSString
+
+        // Расширение: из исходного имени, иначе — из типа
+        var ext = source.pathExtension.lowercased()
+        if ext.isEmpty, let type = typeIdentifier,
+           let preferred = UTType(type)?.preferredFilenameExtension {
+            ext = preferred.lowercased()
         }
-        // Страховка: файл .fb2 мог быть определён системой как обычный XML
-        if identifiers.contains("public.xml") {
-            return "public.xml"
+
+        let nameExt = (name.pathExtension as String).lowercased()
+        let finalExt = nameExt.isEmpty ? ext : nameExt
+        let baseName = finalExt.isEmpty
+            ? (name as String)
+            : (name.deletingPathExtension as String) + "." + finalExt
+
+        // Уникальное имя внутри Inbox
+        var dest = inbox.appendingPathComponent(baseName)
+        var counter = 1
+        let stem = (baseName as NSString).deletingPathExtension
+        let destExt = (baseName as NSString).pathExtension
+        while FileManager.default.fileExists(atPath: dest.path) {
+            dest = destExt.isEmpty
+                ? inbox.appendingPathComponent("\(stem) (\(counter))")
+                : inbox.appendingPathComponent("\(stem) (\(counter)).\(destExt)")
+            counter += 1
+        }
+
+        do {
+            // URL из loadFileRepresentation живёт только внутри колбэка —
+            // копируем синхронно и сразу
+            try FileManager.default.copyItem(at: source, to: dest)
+            savedCount += 1
+        } catch {
+            // Файл не сохранён — финальное сообщение покажет результат
+        }
+    }
+
+    private static func fileURL(from item: Any?) -> URL? {
+        if let url = item as? URL { return url }
+        if let url = item as? NSURL { return url as URL }
+        if let data = item as? Data,
+           let string = String(data: data, encoding: .utf8),
+           let url = URL(string: string) {
+            return url
         }
         return nil
     }
 
-    // MARK: Копирование в общую папку
+    // MARK: - Завершение
 
-    private func saveToInbox(tempURL: URL, attachment: NSItemProvider, typeIdentifier: String) -> Bool {
-        let fm = FileManager.default
-
-        guard let container = fm.containerURL(forSecurityApplicationGroupIdentifier: Config.appGroupID) else {
-            return false
-        }
-
-        let inbox = container.appendingPathComponent(Config.inboxFolderName, isDirectory: true)
-        do {
-            try fm.createDirectory(at: inbox, withIntermediateDirectories: true)
-        } catch {
-            return false
-        }
-
-        var ext = tempURL.pathExtension.lowercased()
-        if ext.isEmpty {
-            ext = fileExtension(for: typeIdentifier)
-        }
-
-        let suggestedBase = (attachment.suggestedName as NSString?)?.deletingPathExtension ?? "файл"
-        let name = "\(sanitize(suggestedBase))-\(UUID().uuidString.prefix(6)).\(ext)"
-        let destination = inbox.appendingPathComponent(name)
-
-        do {
-            try fm.copyItem(at: tempURL, to: destination)
-            return true
-        } catch {
-            return false
+    private func attachmentDone() {
+        pendingCount -= 1
+        if pendingCount <= 0 {
+            finish()
         }
     }
 
-    private func fileExtension(for typeIdentifier: String) -> String {
-        switch typeIdentifier {
-        case "com.fictionbook.fb2": return "fb2"
-        case "org.idpf.epub-container": return "epub"
-        case "public.plain-text": return "txt"
-        case "public.mp3": return "mp3"
-        case "com.apple.m4a-audio": return "m4a"
-        case "com.apple.m4b-audio": return "m4b"
-        case "org.xiph.flac": return "flac"
-        case "com.microsoft.waveform-audio": return "wav"
-        case "public.aiff-audio": return "aiff"
-        case "com.apple.coreaudio-format": return "caf"
-        default:
-            if let ext = UTType(typeIdentifier)?.preferredFilenameExtension {
-                return ext
+    private func finish() {
+        guard !finished else { return }
+        finished = true
+
+        if savedCount > 0 {
+            statusLabel.text = "Файлов передано: \(savedCount)\nОткрываю PlayBook…"
+            openHostApp()
+
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) { [weak self] in
+                self?.complete()
             }
-            return "dat"
+        } else {
+            fail("Не удалось скопировать файл")
         }
     }
 
-    private func sanitize(_ name: String) -> String {
-        let forbidden = CharacterSet(charactersIn: "/\\?%*|\"<>:")
-        let cleaned = name.components(separatedBy: forbidden).joined(separator: "-")
-        let trimmed = cleaned.trimmingCharacters(in: .whitespacesAndNewlines)
-        return trimmed.isEmpty ? "файл" : String(trimmed.prefix(64))
+    private func finishIfPending() {
+        guard !finished else { return }
+
+        if savedCount > 0 {
+            finish()
+        } else {
+            // Запросы так и не отработали — закрываемся,
+            // приложение заберёт файлы при следующем запуске
+            complete()
+        }
+    }
+
+    private func fail(_ message: String) {
+        guard !finished else { return }
+        finished = true
+
+        statusLabel.text = message
+
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { [weak self] in
+            self?.complete()
+        }
+    }
+
+    private func complete() {
+        extensionContext?.completeRequest(returningItems: nil, completionHandler: nil)
     }
 
     // MARK: - Открытие основного приложения
 
-    // Стандартный обходной путь для share-расширений: искать объект
-    // UIApplication по цепочке responders и вызвать openURL:,
-    // потому что прямой вызов open() из расширения запрещён.
-    private func openMainApp() {
+    private func openHostApp() {
         guard let url = URL(string: "playbook://shared-inbox") else { return }
 
-        let selector = sel_registerName("openURL:")
         var responder: UIResponder? = self
-
         while let current = responder {
-            if current.responds(to: selector), let application = current as? UIApplication {
-                application.perform(selector, with: url as NSURL)
+            if let application = current as? UIApplication {
+                application.perform(#selector(openURL(_:)), with: url)
                 return
             }
             responder = current.next
         }
     }
 
-    // MARK: - Завершение
-
-    private func finish() {
-        guard !finished else { return }
-        finished = true
-        extensionContext?.completeRequest(returningItems: nil, completionHandler: nil)
-    }
-}
-
-// MARK: - Потокобезопасный счётчик
-
-private final class Counter {
-    private let lock = NSLock()
-    private(set) var value = 0
-
-    func increment() {
-        lock.lock()
-        value += 1
-        lock.unlock()
-    }
+    @objc private func openURL(_ url: URL) { }
 }
