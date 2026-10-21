@@ -188,6 +188,12 @@ class ShareViewController: UIViewController {
 
     private func suggestedOr(_ fallback: String, provider: NSItemProvider) -> String {
         if let suggested = provider.suggestedName, !suggested.isEmpty {
+            // Восстанавливаем расширение файла из fallback-имени, так как suggestedName его не содержит
+            let fallbackURL = URL(fileURLWithPath: fallback)
+            let ext = fallbackURL.pathExtension
+            if !ext.isEmpty {
+                return (suggested as NSString).appendingPathExtension(ext) ?? "\(suggested).\(ext)"
+            }
             return suggested
         }
         return fallback
@@ -325,4 +331,3 @@ class ShareViewController: UIViewController {
         }
     }
 }
-
