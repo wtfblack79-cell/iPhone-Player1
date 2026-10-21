@@ -1804,7 +1804,7 @@ struct ContentView: View {
 
         if audioExtensions.contains(ext) {
             importIncomingAudio(url)
-        } else if ext == "epub" || ext == "txt" {
+        } else if ext == "fb2" || ext == "epub" || ext == "txt" {
             importIncomingBook(url)
         }
     }
