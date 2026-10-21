@@ -1,233 +1,181 @@
 import UIKit
 import UniformTypeIdentifiers
 
-class ShareViewController: UIViewController {
+// Расширение "Поделиться" для PlayBook.
+// Собирает файлы из шторки, кладёт их в общую папку App Group
+// (или, на бесплатной учётке, в буфер обмена) и открывает приложение.
 
-    private struct PendingFile {
-        let name: String
-        let data: Data
-    }
+struct ExtractedFile {
+    let data: Data
+    let fileName: String
+}
+
+final class ShareViewController: UIViewController {
 
     private let statusLabel = UILabel()
     private let appGroupID = "group.com.personal.iphoneplayer"
-    private let inboxFolderName = "Inbox"
-    private let maxClipboardFileBytes = 30 * 1024 * 1024
-
-    private var pendingFiles: [PendingFile] = []
-    private let filesLock = NSLock()
-    private var isFinishing = false
+    private let resultLock = NSLock()
+    private var resultFiles: [ExtractedFile] = []
+    private var finished = false
+    private var timeoutWork: DispatchWorkItem?
 
     override func viewDidLoad() {
         super.viewDidLoad()
-        setupUI()
-        extractAllFiles()
-    }
 
-    // MARK: - UI
-
-    private func setupUI() {
         view.backgroundColor = .systemBlue
-
         statusLabel.textColor = .white
         statusLabel.font = .boldSystemFont(ofSize: 17)
         statusLabel.textAlignment = .center
         statusLabel.numberOfLines = 0
         statusLabel.text = "Передача файлов…"
-        statusLabel.translatesAutoresizingMaskIntoConstraints = false
+        statusLabel.frame = CGRect(x: 20, y: 150, width: 300, height: 250)
+        statusLabel.autoresizingMask = [.flexibleWidth]
         view.addSubview(statusLabel)
 
-        NSLayoutConstraint.activate([
-            statusLabel.centerXAnchor.constraint(equalTo: view.centerXAnchor),
-            statusLabel.centerYAnchor.constraint(equalTo: view.centerYAnchor),
-            statusLabel.leadingAnchor.constraint(greaterThanOrEqualTo: view.leadingAnchor, constant: 24),
-            statusLabel.trailingAnchor.constraint(lessThanOrEqualTo: view.trailingAnchor, constant: -24)
-        ])
+        startTimeout()
+        collectFiles()
     }
 
-    // MARK: - Извлечение файлов
+    deinit {
+        timeoutWork?.cancel()
+    }
 
-    private func extractAllFiles() {
-        guard let items = extensionContext?.inputItems as? [NSExtensionItem] else {
-            finishWithError("Файлы не найдены")
+    // MARK: - Сбор файлов из шторки
+
+    private func collectFiles() {
+        guard let context = extensionContext,
+              let items = context.inputItems as? [NSExtensionItem] else {
+            fail("Файлы не найдены")
             return
         }
 
-        var providers: [NSItemProvider] = []
-        for item in items {
-            providers.append(contentsOf: item.attachments ?? [])
-        }
-
+        let providers = items.flatMap { $0.attachments ?? [] }
         guard !providers.isEmpty else {
-            finishWithError("Файлы не найдены")
+            fail("Файлы не найдены")
             return
         }
 
         let group = DispatchGroup()
-
         for provider in providers {
             group.enter()
             extractFile(from: provider) { [weak self] file in
-                if let file = file, let self = self {
-                    self.filesLock.lock()
-                    self.pendingFiles.append(file)
-                    self.filesLock.unlock()
+                if let file {
+                    self?.resultLock.lock()
+                    self?.resultFiles.append(file)
+                    self?.resultLock.unlock()
                 }
                 group.leave()
             }
         }
 
         group.notify(queue: .main) { [weak self] in
-            self?.deliverFiles()
-        }
-
-        // Страховка: если система не ответит — закрываемся сами
-        DispatchQueue.main.asyncAfter(deadline: .now() + 20) { [weak self] in
-            guard let self = self, !self.isFinishing else { return }
-            self.statusLabel.text = "Не удалось передать файлы"
-            self.extensionContext?.completeRequest(returningItems: nil, completionHandler: nil)
+            guard let self, !self.finished else { return }
+            if self.resultFiles.isEmpty {
+                self.fail("Не удалось прочитать файлы")
+            } else {
+                self.deliver(self.resultFiles)
+            }
         }
     }
 
-    private func extractFile(from provider: NSItemProvider, completion: @escaping (PendingFile?) -> Void) {
-        var finished = false
-        let types = provider.registeredTypeIdentifiers
+    // Перебирает все типы, которые система реально отдала для файла
+    private func extractFile(from provider: NSItemProvider,
+                             completion: @escaping (ExtractedFile?) -> Void) {
+        let types = preferredTypes(from: provider.registeredTypeIdentifiers)
+        tryLoad(0)
 
-        func finishOnce(_ file: PendingFile?) {
-            DispatchQueue.main.async {
-                guard !finished else { return }
-                finished = true
-                completion(file)
-            }
-        }
-
-        // Запасной путь: loadItem по первому доступному типу
-        func tryLoadItem() {
-            let type = types.first(where: { provider.hasItemConformingToTypeIdentifier($0) })
-                ?? UTType.data.identifier
-
-            provider.loadItem(forTypeIdentifier: type, options: nil) { item, _ in
-                DispatchQueue.main.async {
-                    var file: PendingFile?
-
-                    switch item {
-                    case let url as URL:
-                        if let data = try? Data(contentsOf: url) {
-                            let name = Self.resolvedName(from: url,
-                                                         suggested: provider.suggestedName,
-                                                         typeIdentifier: type)
-                            file = PendingFile(name: name, data: data)
-                        }
-                    case let data as Data:
-                        let name = Self.resolvedName(from: nil,
-                                                     suggested: provider.suggestedName,
-                                                     typeIdentifier: type)
-                        file = PendingFile(name: name, data: data)
-                    case let string as String:
-                        let url = URL(string: string) ?? URL(fileURLWithPath: string)
-                        if let data = try? Data(contentsOf: url) {
-                            let name = Self.resolvedName(from: url,
-                                                         suggested: provider.suggestedName,
-                                                         typeIdentifier: type)
-                            file = PendingFile(name: name, data: data)
-                        }
-                    default:
-                        break
-                    }
-
-                    finishOnce(file)
-                }
-            }
-        }
-
-        // Основной путь: loadFileRepresentation по каждому реально
-        // зарегистрированному типу (включая динамические dyn.…)
-        func tryType(_ index: Int) {
+        func tryLoad(_ index: Int) {
             guard index < types.count else {
-                tryLoadItem()
-                return
-            }
-            let type = types[index]
-            guard provider.hasItemConformingToTypeIdentifier(type) else {
-                tryType(index + 1)
+                completion(nil)
                 return
             }
 
-            provider.loadFileRepresentation(forTypeIdentifier: type) { url, _, _ in
-                DispatchQueue.main.async {
-                    if let url = url, let data = try? Data(contentsOf: url) {
-                        let name = Self.resolvedName(from: url,
-                                                     suggested: provider.suggestedName,
-                                                     typeIdentifier: type)
-                        finishOnce(PendingFile(name: name, data: data))
-                    } else {
-                        tryType(index + 1)
+            let typeID = types[index]
+            provider.loadFileRepresentation(forTypeIdentifier: typeID) { url, error in
+                if let url, let data = try? Data(contentsOf: url) {
+                    let file = ExtractedFile(
+                        data: data,
+                        fileName: self.suggestedName(for: provider, typeID: typeID)
+                    )
+                    completion(file)
+                } else {
+                    self.loadFallback(provider: provider, typeID: typeID) { file in
+                        if let file {
+                            completion(file)
+                        } else {
+                            tryLoad(index + 1)
+                        }
                     }
                 }
             }
         }
-
-        tryType(0)
     }
 
-    private static func resolvedName(from url: URL?, suggested: String?, typeIdentifier: String) -> String {
-        if let url = url, !url.lastPathComponent.isEmpty {
-            return url.lastPathComponent
-        }
+    private func loadFallback(provider: NSItemProvider,
+                              typeID: String,
+                              completion: @escaping (ExtractedFile?) -> Void) {
+        provider.loadItem(forTypeIdentifier: typeID, options: nil) { item, error in
+            var file: ExtractedFile?
 
-        var base = suggested ?? "file-\(UUID().uuidString.prefix(6))"
-        if (base as NSString).pathExtension.isEmpty {
-            let ext = UTType(typeIdentifier)?.preferredFilenameExtension
-            if let ext = ext {
-                base += ".\(ext)"
+            if let url = item as? URL, let data = try? Data(contentsOf: url) {
+                file = ExtractedFile(data: data, fileName: self.suggestedName(for: provider, typeID: typeID))
+            } else if let data = item as? Data {
+                file = ExtractedFile(data: data, fileName: self.suggestedName(for: provider, typeID: typeID))
+            } else if let url = (item as? NSURL)?.fileURL, let data = try? Data(contentsOf: url) {
+                file = ExtractedFile(data: data, fileName: self.suggestedName(for: provider, typeID: typeID))
+            } else if let path = item as? String, let data = try? Data(contentsOf: URL(fileURLWithPath: path)) {
+                file = ExtractedFile(data: data, fileName: self.suggestedName(for: provider, typeID: typeID))
             }
+
+            completion(file)
         }
-        return base
+    }
+
+    // Сначала типы, понятные системе как данные/файлы, затем остальные
+    private func preferredTypes(from types: [String]) -> [String] {
+        let clean = types.filter { !$0.isEmpty }
+        let strong = clean.filter { UTType($0)?.conforms(to: .data) == true }
+        let weak = clean.filter { !strong.contains($0) }
+        return strong + weak
+    }
+
+    private func suggestedName(for provider: NSItemProvider, typeID: String) -> String {
+        if let name = provider.suggestedName, !name.isEmpty {
+            return name
+        }
+        let ext = UTType(typeID)?.preferredFilenameExtension ?? "dat"
+        return "файл." + ext
     }
 
     // MARK: - Доставка
 
-    private func deliverFiles() {
-        guard !isFinishing else { return }
-        isFinishing = true
+    private func deliver(_ files: [ExtractedFile]) {
+        let saved = saveToAppGroup(files) || saveToPasteboard(files)
 
-        filesLock.lock()
-        let files = pendingFiles
-        filesLock.unlock()
-
-        guard !files.isEmpty else {
-            finishWithError("Файлы не найдены")
-            return
+        if saved {
+            statusLabel.text = files.count == 1
+                ? "Файлов передано: 1"
+                : "Файлов передано: \(files.count)"
+            openHostApp()
+            finish(after: 1.2)
+        } else {
+            fail("Не удалось сохранить файлы")
         }
-
-        // Путь 1: общая папка App Group (работает на платной учётке)
-        if saveToAppGroup(files) {
-            finishWithSuccess(count: files.count)
-            return
-        }
-
-        // Путь 2: буфер обмена (работает на бесплатной учётке)
-        let oversized = files.contains { $0.data.count > maxClipboardFileBytes }
-        if !oversized && writeToPasteboard(files) {
-            finishWithSuccess(count: files.count)
-            return
-        }
-
-        finishWithError(oversized
-            ? "Файл слишком большой — используйте «Копировать в PlayBook»"
-            : "Не удалось сохранить файлы")
     }
 
-    private func saveToAppGroup(_ files: [PendingFile]) -> Bool {
-        guard let container = FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: appGroupID) else {
+    private func saveToAppGroup(_ files: [ExtractedFile]) -> Bool {
+        guard let container = FileManager.default
+            .containerURL(forSecurityApplicationGroupIdentifier: appGroupID) else {
+            // На бесплатной учётке App Group недоступна — уйдём через буфер
             return false
         }
 
-        let inbox = container.appendingPathComponent(inboxFolderName, isDirectory: true)
+        let inbox = container.appendingPathComponent("Inbox", isDirectory: true)
         do {
             try FileManager.default.createDirectory(at: inbox, withIntermediateDirectories: true)
             for file in files {
-                let destination = uniqueDestination(in: inbox, preferredName: file.name)
-                try file.data.write(to: destination)
+                let target = uniqueURL(for: inbox.appendingPathComponent(file.fileName))
+                try file.data.write(to: target)
             }
             return true
         } catch {
@@ -235,80 +183,85 @@ class ShareViewController: UIViewController {
         }
     }
 
-    private func writeToPasteboard(_ files: [PendingFile]) -> Bool {
-        let sessionID = UUID().uuidString
-        var items = UIPasteboard.general.items
-
+    private func saveToPasteboard(_ files: [ExtractedFile]) -> Bool {
+        var payload: [[String: Any]] = []
         for file in files {
-            var item: [String: Any] = [:]
-            item[Self.dataKey] = file.data
-            item[Self.nameKey] = file.name
-            item[Self.sessionKey] = sessionID
-            items.append(item)
+            payload.append([
+                "name": file.fileName,
+                "data": file.data
+            ])
         }
 
-        UIPasteboard.general.items = items
+        guard let packed = try? PropertyListSerialization
+            .data(fromPropertyList: payload, format: .binary, options: 0) else {
+            return false
+        }
+
+        UIPasteboard.general.setItems(
+            [[pasteboardKey: packed]],
+            options: [UIPasteboard.OptionsKey.expirationDate: Date().addingTimeInterval(600)]
+        )
         return true
     }
 
-    // MARK: - Ключи совместимы с SharedInbox (Sources/SharedInbox.swift)
+    private func uniqueURL(for url: URL) -> URL {
+        let fileManager = FileManager.default
+        guard fileManager.fileExists(atPath: url.path) else { return url }
 
-    private static let dataKey = "com.personal.iphoneplayer.shared-file.data"
-    private static let nameKey = "com.personal.iphoneplayer.shared-file.name"
-    private static let sessionKey = "com.personal.iphoneplayer.shared-file.session"
+        let directory = url.deletingLastPathComponent()
+        let baseName = url.deletingPathExtension().lastPathComponent
+        let ext = url.pathExtension
 
-    // MARK: - Открытие приложения (обходной путь: прямой open() из расширений запрещён)
+        for index in 1...999 {
+            let candidate = directory
+                .appendingPathComponent("\(baseName) (\(index))")
+                .appendingPathExtension(ext)
+            if !fileManager.fileExists(atPath: candidate.path) {
+                return candidate
+            }
+        }
+        return directory.appendingPathComponent(UUID().uuidString)
+            .appendingPathExtension(ext)
+    }
 
-    private func openApp() {
+    // MARK: - Открытие приложения и завершение
+
+    private func openHostApp() {
         guard let url = URL(string: "playbook://shared-inbox") else { return }
 
         var responder: UIResponder? = self
+        let selector = NSSelectorFromString("openURL:")
         while let current = responder {
-            if let application = current as? UIApplication {
-                application.open(url, options: [:], completionHandler: nil)
-                return
+            if current.responds(to: selector) {
+                current.perform(selector, with: url)
+                break
             }
             responder = current.next
         }
     }
 
-    // MARK: - Завершение
-
-    private func finishWithSuccess(count: Int) {
-        statusLabel.text = "Файлов передано: \(count)"
-        openApp()
-        completeRequest(after: 1.2)
-    }
-
-    private func finishWithError(_ message: String) {
+    private func fail(_ message: String) {
+        guard !finished else { return }
         statusLabel.text = message
-        completeRequest(after: 2.5)
+        finish(after: 2.0)
     }
 
-    private func completeRequest(after delay: TimeInterval) {
+    private func finish(after delay: TimeInterval) {
+        finished = true
+        timeoutWork?.cancel()
         DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
             self?.extensionContext?.completeRequest(returningItems: nil, completionHandler: nil)
         }
     }
 
-    // MARK: - Имена файлов
-
-    private func uniqueDestination(in directory: URL, preferredName: String) -> URL {
-        let fileManager = FileManager.default
-        let base = (preferredName as NSString).lastPathComponent
-        var candidate = directory.appendingPathComponent(base)
-        var counter = 1
-
-        while fileManager.fileExists(atPath: candidate.path) {
-            let nameNoExt = (base as NSString).deletingPathExtension
-            let ext = (base as NSString).pathExtension
-            let newName = ext.isEmpty
-                ? "\(nameNoExt) (\(counter))"
-                : "\(nameNoExt) (\(counter)).\(ext)"
-            candidate = directory.appendingPathComponent(newName)
-            counter += 1
+    // Страховка: шторка закроется даже если система не ответит
+    private func startTimeout() {
+        let work = DispatchWorkItem { [weak self] in
+            guard let self, !self.finished else { return }
+            self.finished = true
+            self.extensionContext?.completeRequest(returningItems: nil, completionHandler: nil)
         }
-
-        return candidate
+        timeoutWork = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + 20, execute: work)
     }
 }
