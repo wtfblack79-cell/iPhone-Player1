@@ -35,14 +35,6 @@ targets:
         UIBackgroundModes:
           - audio
         LSSupportsOpeningDocumentsInPlace: false
-        UTImportedTypeDeclarations:
-          - UTTypeIdentifier: com.fictionbook.fb2
-            UTTypeDescription: FictionBook 2
-            UTTypeConformsTo:
-              - public.xml
-            UTTypeTagSpecification:
-              public.filename-extension:
-                - fb2
         CFBundleURLTypes:
           - CFBundleURLName: com.personal.iphoneplayer
             CFBundleURLSchemes:
@@ -62,22 +54,29 @@ targets:
               - public.aiff-audio
               - com.apple.coreaudio-format
               - org.xiph.flac
-          - CFBundleTypeName: Аудиокнига FB2
+          - CFBundleTypeName: FictionBook 2 (FB2)
             CFBundleTypeRole: Viewer
-            LSHandlerRank: Default
+            LSHandlerRank: Owner
             LSItemContentTypes:
               - com.fictionbook.fb2
-          - CFBundleTypeName: Электронная книга EPUB
+          - CFBundleTypeName: Electronic Publication (EPUB)
             CFBundleTypeRole: Viewer
-            LSHandlerRank: Default
+            LSHandlerRank: Owner
             LSItemContentTypes:
               - org.idpf.epub-container
-          - CFBundleTypeName: Текст
+          - CFBundleTypeName: Text
             CFBundleTypeRole: Viewer
-            LSHandlerRank: Default
+            LSHandlerRank: Owner
             LSItemContentTypes:
               - public.plain-text
-
+        UTExportedTypeDeclarations:
+          - UTTypeIdentifier: com.fictionbook.fb2
+            UTTypeDescription: FictionBook 2
+            UTTypeConformsTo:
+              - public.xml
+            UTTypeTagSpecification:
+              public.filename-extension:
+                - fb2
 
   PlayBookShare:
     type: app-extension
@@ -93,6 +92,14 @@ targets:
       path: Sources/PlayBookShare/PlayBookShare-Info.plist
       properties:
         CFBundleDisplayName: PlayBook
+        UTImportedTypeDeclarations:
+          - UTTypeIdentifier: com.fictionbook.fb2
+            UTTypeDescription: FictionBook 2
+            UTTypeConformsTo:
+              - public.xml
+            UTTypeTagSpecification:
+              public.filename-extension:
+                - fb2
         NSExtension:
           NSExtensionPointIdentifier: com.apple.share-services
           NSExtensionPrincipalClass: $(PRODUCT_MODULE_NAME).ShareViewController
