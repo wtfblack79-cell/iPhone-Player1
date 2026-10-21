@@ -6,7 +6,7 @@ import Combine
 import UIKit
 
 @MainActor
-final class AudioBookPlayer: NSObject, ObservableObject, @preconcurrency AVAudioPlayerDelegate {
+final class AudioBookPlayer: NSObject, ObservableObject, AVAudioPlayerDelegate {
     @Published var books: [URL] = []
     @Published var currentURL: URL?
     @Published var isPlaying = false
