@@ -2,27 +2,13 @@ import SwiftUI
 import UniformTypeIdentifiers
 import Compression
 
-// MARK: - Типы файлов книг
-
-enum EBookFileType {
-    // Системного типа для fb2 в iOS нет — объявляем сами:
-    // сначала пробуем зарегистрированный в системе (если какой-то
-    // читательский app уже объявил расширение), иначе свой.
-    static let fb2: UTType = {
-        if let registered = UTType(filenameExtension: "fb2") {
-            return registered
-        }
-        // В текущем SDK этот инициализатор не опциональный и не бросает ошибку.
-        return UTType(exportedAs: "com.fictionbook.fb2", conformingTo: .xml)
-    }()
-}
-
 // MARK: - Модель электронной книги
 
 struct EBook: Identifiable, Codable {
     var id: UUID = UUID()
     var title: String
     var fileName: String
+    var author: String? = nil
 }
 
 // MARK: - Хранилище электронных книг
@@ -101,7 +87,11 @@ final class EBookStore: ObservableObject {
                 fallback: fallbackTitle
             )
 
-            let book = EBook(title: bookTitle, fileName: fileName)
+            let book = EBook(
+                title: bookTitle,
+                fileName: fileName,
+                author: EBookParser.bookAuthor(data: data, fileExtension: ext)
+            )
             books.append(book)
             saveIndex()
             isLoading = false
@@ -172,6 +162,56 @@ enum EBookParser {
         return fallback
     }
 
+    // Автор книги: FB2 — <author>, EPUB — <dc:creator>
+    static func bookAuthor(data: Data, fileExtension: String) -> String? {
+        if fileExtension == "fb2" {
+            let xml = fb2String(from: data)
+
+            if let authorBlock = firstGroup(
+                in: xml,
+                pattern: "<(?:\\w+:)?author[^>]*>(.*?)</(?:\\w+:)?author>"
+            ) {
+                let first = firstGroup(in: authorBlock, pattern: "<(?:\\w+:)?first-name[^>]*>(.*?)</(?:\\w+:)?first-name>")
+                let middle = firstGroup(in: authorBlock, pattern: "<(?:\\w+:)?middle-name[^>]*>(.*?)</(?:\\w+:)?middle-name>")
+                let last = firstGroup(in: authorBlock, pattern: "<(?:\\w+:)?last-name[^>]*>(.*?)</(?:\\w+:)?last-name>")
+                let nick = firstGroup(in: authorBlock, pattern: "<(?:\\w+:)?nickname[^>]*>(.*?)</(?:\\w+:)?nickname>")
+
+                let parts = [first, middle, last]
+                    .compactMap { $0 }
+                    .map { plainText(fromHTML: $0).trimmingCharacters(in: .whitespacesAndNewlines) }
+                    .filter { !$0.isEmpty }
+
+                if !parts.isEmpty {
+                    return parts.joined(separator: " ")
+                }
+
+                if let nick = nick {
+                    let name = plainText(fromHTML: nick)
+                        .trimmingCharacters(in: .whitespacesAndNewlines)
+                    if !name.isEmpty {
+                        return name
+                    }
+                }
+            }
+        }
+
+        if fileExtension == "epub" {
+            let files = unzip(data)
+            if let opfPath = opfPath(in: files), let opfData = files[opfPath] {
+                let opf = decodeString(opfData)
+                if let creator = firstGroup(in: opf, pattern: "<dc:creator[^>]*>(.*?)</dc:creator>") {
+                    let plain = plainText(fromHTML: creator)
+                        .trimmingCharacters(in: .whitespacesAndNewlines)
+                    if !plain.isEmpty {
+                        return plain
+                    }
+                }
+            }
+        }
+
+        return nil
+    }
+
     static func parse(data: Data, fileExtension: String) -> String {
         switch fileExtension {
         case "txt":
@@ -190,12 +230,15 @@ enum EBookParser {
     private static func text(fromFB2 data: Data) -> String {
         let xml = fb2String(from: data)
 
-        // Берём только первый body без атрибута name —
-        // сноски хранятся в отдельных body с name="notes"
+        // Основной текст — первый body без атрибутов;
+        // сноски лежат в отдельных body с name="notes"
         var paragraphs: [String] = []
 
-        if let bodyXML = firstGroup(in: xml, pattern: "<body(?:\\s[^>]*)?>(.*?)</body>") {
-            paragraphs = fb2Paragraphs(bodyXML)
+        let mainBody = firstGroup(in: xml, pattern: "<body>(.*?)</body>")
+            ?? firstGroup(in: xml, pattern: "<body(?:\\s[^>]*)?>(.*?)</body>")
+
+        if let mainBody = mainBody {
+            paragraphs = fb2Paragraphs(mainBody)
         }
 
         if paragraphs.isEmpty {
@@ -209,12 +252,27 @@ enum EBookParser {
         var result: [String] = []
 
         let pattern = "<p(?:\\s[^>]*)?>.*?</p>|<p(?:\\s[^>]*)?/>|<empty-line\\s*/?>"
+            + "|<title(?:\\s[^>]*)?>.*?</title>|<subtitle(?:\\s[^>]*)?>.*?</subtitle>"
 
         for match in allMatches(in: xml, pattern: pattern) {
             let lower = match.lowercased()
 
             if lower.contains("empty-line") {
                 result.append("")
+                continue
+            }
+
+            if lower.hasPrefix("<title") || lower.hasPrefix("<subtitle") {
+                let tag = lower.hasPrefix("<title") ? "title" : "subtitle"
+                if let content = firstGroup(in: match, pattern: "<\(tag)(?:\\s[^>]*)?>(.*?)</\(tag)>") {
+                    let heading = plainText(fromHTML: content)
+                        .replacingOccurrences(of: "\n", with: " ")
+                        .trimmingCharacters(in: .whitespacesAndNewlines)
+
+                    if !heading.isEmpty {
+                        result.append(heading)
+                    }
+                }
                 continue
             }
 
@@ -777,10 +835,19 @@ struct ReadingScreenView: View {
                                     .background(Color.white.opacity(0.12))
                                     .clipShape(Circle())
 
-                                Text(book.title)
-                                    .font(AppFont.bold(17))
-                                    .foregroundStyle(.white)
-                                    .lineLimit(1)
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text(book.title)
+                                        .font(AppFont.bold(17))
+                                        .foregroundStyle(.white)
+                                        .lineLimit(1)
+
+                                    if let author = book.author, !author.isEmpty {
+                                        Text(author)
+                                            .font(AppFont.regular(13))
+                                            .foregroundStyle(.white.opacity(0.6))
+                                            .lineLimit(1)
+                                    }
+                                }
 
                                 Spacer()
                             }
@@ -807,6 +874,13 @@ struct ReadingScreenView: View {
                 .lineLimit(2)
                 .multilineTextAlignment(.center)
                 .padding(.horizontal, 60)
+
+            if let author = book.author, !author.isEmpty {
+                Text(author)
+                    .font(AppFont.regular(14))
+                    .foregroundStyle(.white.opacity(0.6))
+                    .lineLimit(1)
+            }
 
             ScrollView(showsIndicators: false) {
                 Text(currentText.isEmpty ? "Текст книги не найден" : currentText)
