@@ -195,6 +195,7 @@ struct ContentView: View {
     @State private var libraryBackground: UIImage?
     @State private var settingsBackground: UIImage?
     @State private var showingBackgroundPicker = false
+    @State private var showingBookImporter = false
     @State private var backgroundTarget = "home"
 
     // Собственные меню
@@ -326,6 +327,15 @@ struct ContentView: View {
             allowsMultipleSelection: false
         ) { result in
             importBackgroundImage(result)
+        }
+        .fileImporter(
+            isPresented: $showingBookImporter,
+            allowedContentTypes: [.epub, .plainText],
+            allowsMultipleSelection: false
+        ) { result in
+            if ebookStore.importBook(from: result) != nil {
+                errorMessage = ""
+            }
         }
         .overlay(alignment: .topTrailing) {
             if currentScreenIsReading {
@@ -1081,6 +1091,30 @@ struct ContentView: View {
             Text("Библиотека")
                 .font(AppFont.bold(34))
                 .foregroundStyle(theme.ui)
+
+            Button {
+                showingBookImporter = true
+            } label: {
+                HStack(spacing: 8) {
+                    Image(systemName: "plus.circle.fill")
+                        .font(.system(size: 17, weight: .medium))
+
+                    Text("Добавить книгу")
+                        .font(AppFont.regular(17))
+                }
+                .foregroundStyle(theme.ui)
+                .padding(.horizontal, 20)
+                .frame(height: 46)
+                .background(
+                    RoundedRectangle(cornerRadius: 18)
+                        .fill(Color.white.opacity(0.08))
+                )
+                .overlay {
+                    RoundedRectangle(cornerRadius: 18)
+                        .stroke(theme.ui.opacity(0.8), lineWidth: 1)
+                }
+            }
+            .buttonStyle(.plain)
 
             if libraryFiles.isEmpty && folders.isEmpty && ebookStore.books.isEmpty {
                 Text("Пока нет книг")
