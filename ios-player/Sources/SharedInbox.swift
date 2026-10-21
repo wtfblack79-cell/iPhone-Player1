@@ -1,122 +1,90 @@
 import UIKit
+import UniformTypeIdentifiers
 
-// Приёмник файлов, переданных из Share Extension.
-// Забирает файлы и из общей папки App Group, и из буфера обмена
-// (канал для бесплатной учётки разработчика), чистит за собой.
-//
-// Ключи пометок совместимы с Sources/PlayBookShare/ShareViewController.swift
+// Приёмник файлов, переданных через Share-расширение.
+// Согласован с ShareViewController: та же папка Inbox в App Group
+// и тот же ключ в буфере обмена.
 
 enum SharedInbox {
 
     private static let appGroupID = "group.com.personal.iphoneplayer"
-    private static let inboxFolderName = "Inbox"
-    private static let dataKey = "com.personal.iphoneplayer.shared-file.data"
-    private static let nameKey = "com.personal.iphoneplayer.shared-file.name"
-    private static let sessionKey = "com.personal.iphoneplayer.shared-file.session"
-    private static let processedSessionsKey = "playbook.sharedInbox.processedSessions"
+    private static let pasteboardKey = "com.personal.iphoneplayer.shared-files"
 
-    // Забирает все переданные файлы и возвращает их локальные URL.
+    /// Забирает переданные файлы и возвращает их URL (копии в tmp приложения).
+    /// Вызывать из .onAppear или .onOpenURL — файлы забираются один раз.
     static func takeFiles() -> [URL] {
-        var urls: [URL] = []
-        urls.append(contentsOf: takeFromAppGroup())
-        urls.append(contentsOf: takeFromPasteboard())
-        return urls
+        var files = takeFromAppGroup()
+        if files.isEmpty {
+            files = takeFromPasteboard()
+        }
+        return files
     }
 
-    // MARK: - Папка для принятых файлов
-
-    private static func importDirectory() -> URL {
-        let dir = URL(fileURLWithPath: NSTemporaryDirectory())
-            .appendingPathComponent("SharedInboxImport", isDirectory: true)
-        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-        return dir
-    }
-
-    // MARK: - Путь 1: общая папка App Group
+    // MARK: - Путь 1: общая папка App Group (платная учётка)
 
     private static func takeFromAppGroup() -> [URL] {
-        guard let container = FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: appGroupID) else {
+        guard let container = FileManager.default
+            .containerURL(forSecurityApplicationGroupIdentifier: appGroupID) else {
             return []
         }
 
-        let inbox = container.appendingPathComponent(inboxFolderName, isDirectory: true)
-        let fileManager = FileManager.default
-        guard let names = try? fileManager.contentsOfDirectory(atPath: inbox.path), !names.isEmpty else {
+        let inbox = container.appendingPathComponent("Inbox", isDirectory: true)
+        guard let contents = try? FileManager.default
+            .contentsOfDirectory(at: inbox, includingPropertiesForKeys: nil) else {
             return []
         }
 
-        let destination = importDirectory()
-        var urls: [URL] = []
+        let files = contents.filter { !$0.hasDirectoryPath && !$0.lastPathComponent.hasPrefix(".") }
+        guard !files.isEmpty else { return [] }
 
-        for name in names.sorted() {
-            let source = inbox.appendingPathComponent(name)
-            guard fileManager.fileExists(atPath: source.path) else { continue }
-
-            let target = uniqueTarget(in: destination, preferredName: name)
-            if (try? fileManager.copyItem(at: source, to: target)) != nil {
-                urls.append(target)
-                try? fileManager.removeItem(at: source)
+        var result: [URL] = []
+        for file in files {
+            let destination = FileManager.default.temporaryDirectory
+                .appendingPathComponent(UUID().uuidString)
+                .appendingPathExtension(file.pathExtension)
+            if (try? FileManager.default.copyItem(at: file, to: destination)) != nil {
+                result.append(destination)
             }
+            try? FileManager.default.removeItem(at: file)
         }
-
-        return urls
+        return result
     }
 
-    // MARK: - Путь 2: буфер обмена (файлы с нашими пометками)
+    // MARK: - Путь 2: буфер обмена (бесплатная учётка)
 
     private static func takeFromPasteboard() -> [URL] {
-        let items = UIPasteboard.general.items
-        guard !items.isEmpty else { return [] }
-
-        var processed = Set(UserDefaults.standard.stringArray(forKey: processedSessionsKey) ?? [])
-
-        var collected: [(session: String, name: String, data: Data)] = []
-        for item in items {
-            guard let data = item[dataKey] as? Data else { continue }
-            let session = (item[sessionKey] as? String) ?? UUID().uuidString
-            guard !processed.contains(session) else { continue }
-            let name = (item[nameKey] as? String) ?? "file-\(UUID().uuidString.prefix(6)).bin"
-            collected.append((session, name, data))
+        let pasteboard = UIPasteboard.general
+        guard let packed = pasteboard.data(forPasteboardType: pasteboardKey) else {
+            return []
         }
 
-        guard !collected.isEmpty else { return [] }
+        guard let payload = try? PropertyListSerialization
+            .propertyList(from: packed, options: [], format: nil) as? [[String: Any]] else {
+            return []
+        }
 
-        let destination = importDirectory()
-        var urls: [URL] = []
+        var result: [URL] = []
+        for entry in payload {
+            guard let name = entry["name"] as? String,
+                  let data = entry["data"] as? Data else { continue }
 
-        for entry in collected {
-            let target = uniqueTarget(in: destination, preferredName: entry.name)
-            do {
-                try entry.data.write(to: target)
-                urls.append(target)
-                processed.insert(entry.session)
-            } catch {
-                continue
+            let safeName = sanitizedName(name)
+            let destination = FileManager.default.temporaryDirectory
+                .appendingPathComponent(UUID().uuidString + "_" + safeName)
+            if (try? data.write(to: destination)) != nil {
+                result.append(destination)
             }
         }
 
-        UserDefaults.standard.set(Array(processed), forKey: processedSessionsKey)
-        return urls
+        // Очищаем наш след, чтобы не забрать файлы повторно
+        pasteboard.items = []
+
+        return result
     }
 
-    // MARK: - Имена файлов
-
-    private static func uniqueTarget(in directory: URL, preferredName: String) -> URL {
-        let fileManager = FileManager.default
-        let base = (preferredName as NSString).lastPathComponent
-        var candidate = directory.appendingPathComponent(base)
-        var counter = 1
-
-        while fileManager.fileExists(atPath: candidate.path) {
-            let nameNoExt = (base as NSString).deletingPathExtension
-            let ext = (base as NSString).pathExtension
-            let newName = ext.isEmpty
-                ? "\(nameNoExt) (\(counter))"
-                : "\(nameNoExt) (\(counter)).\(ext)"
-            candidate = directory.appendingPathComponent(newName)
-            counter += 1
-        }
-
-        return candidate
+    private static func sanitizedName(_ name: String) -> String {
+        let forbidden = CharacterSet(charactersIn: "/\\:?%*|\"<>")
+        let cleaned = name.components(separatedBy: forbidden).joined(separator: "_")
+        return cleaned.isEmpty ? "файл" : cleaned
     }
 }
