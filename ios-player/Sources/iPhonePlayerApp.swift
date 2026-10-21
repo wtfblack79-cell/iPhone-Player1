@@ -173,6 +173,7 @@ struct ContentView: View {
     @State private var isDesignSectionExpanded = false
     @State private var errorMessage = ""
     @State private var showingCreateFolder = false
+    @State private var showingBookPicker = false
     @State private var newFolderName = ""
     @State private var folders: [String] = []
     @State private var selectedFolder: String? = nil
@@ -256,7 +257,7 @@ struct ContentView: View {
         }
         .foregroundStyle(.white)
         .onAppear {
-            // Отложенный импорт файлов, переданных через Share Extension
+            // Файлы, отложенные Share-расширением (шторка «Поделиться»)
             for fileURL in SharedInbox.takeFiles() {
                 routeIncomingFile(fileURL)
             }
@@ -272,7 +273,7 @@ struct ContentView: View {
 
 
         }
-
+        // Входящие файлы: «Поделиться» → «Скопировать в PlayBook» и открытие приложения из шторки
         .onOpenURL { url in
             handleIncomingURL(url)
         }
@@ -1232,6 +1233,21 @@ struct ContentView: View {
                 }
                 .buttonStyle(.plain)
 
+                Button {
+                    showingBookPicker = true
+                } label: {
+                    Image(systemName: "plus")
+                        .font(.system(size: 16, weight: .medium))
+                        .foregroundStyle(theme.ui)
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 10)
+                        .overlay {
+                            Capsule()
+                                .stroke(theme.ui.opacity(0.8), lineWidth: 1)
+                        }
+                }
+                .buttonStyle(.plain)
+
                 Spacer()
             }
             .padding(.horizontal, 24)
@@ -1250,6 +1266,13 @@ struct ContentView: View {
             }
         } message: {
             Text("Введите название папки")
+        }
+        .fileImporter(
+            isPresented: $showingBookPicker,
+            allowedContentTypes: bookTypes,
+            allowsMultipleSelection: true
+        ) { result in
+            importPickedBooks(result)
         }
         .overlay(alignment: .bottom) {
             if let error = ebookStore.errorMessage {
@@ -1787,11 +1810,79 @@ struct ContentView: View {
         }
     }
 
-    // MARK: - Обработка файлов, переданных извне ("Поделиться" / "Копировать в PlayBook")
+    // Типы файлов для системного выбора книг (кнопка «+» в библиотеке)
+    private var bookTypes: [UTType] {
+        var types: [UTType] = []
 
+        if let fb2 = UTType(filenameExtension: "fb2") {
+            types.append(fb2)
+        }
+        if let epub = UTType(filenameExtension: "epub") {
+            types.append(epub)
+        }
+        types.append(.xml)
+        types.append(.text)
+
+        return types.isEmpty ? [.data] : types
+    }
+
+    // Импорт книг через системный выбор файлов: работает всегда,
+    // независимо от учётки разработчика и Share-расширения
+    private func importPickedBooks(_ result: Result<[URL], Error>) {
+        guard case .success(let urls) = result, !urls.isEmpty else { return }
+
+        let documents = FileManager.default.urls(
+            for: .documentDirectory,
+            in: .userDomainMask
+        )[0]
+
+        var lastBook: EBook?
+
+        for sourceURL in urls {
+            let didAccess = sourceURL.startAccessingSecurityScopedResource()
+            defer {
+                if didAccess {
+                    sourceURL.stopAccessingSecurityScopedResource()
+                }
+            }
+
+            let baseName = sourceURL.deletingPathExtension().lastPathComponent
+            let fileExtension = sourceURL.pathExtension
+            var destination = documents.appendingPathComponent(
+                sourceURL.lastPathComponent
+            )
+            var number = 2
+
+            while FileManager.default.fileExists(atPath: destination.path) {
+                destination = documents.appendingPathComponent(
+                    "\(baseName) (\(number)).\(fileExtension)"
+                )
+                number += 1
+            }
+
+            do {
+                try FileManager.default.copyItem(at: sourceURL, to: destination)
+            } catch {
+                errorMessage = "Не удалось скопировать файл книги"
+                continue
+            }
+
+            if let book = ebookStore.importBook(from: destination) {
+                lastBook = book
+            }
+        }
+
+        if let book = lastBook {
+            readingBook = book
+            readingOriginIsLibrary = true
+            withAnimation(.easeOut(duration: 0.2)) {
+                currentScreenIsReading = true
+            }
+        }
+    }
+
+    // Разбор входящего URL: файлы из шторки и прямая передача через «Скопировать»
     private func handleIncomingURL(_ url: URL) {
-        // Файлы из Share Extension: расширение кладёт их в общую папку
-        // app group и открывает приложение по схеме playbook://shared-inbox
         if url.scheme == "playbook" {
             guard url.host == "shared-inbox" else { return }
 
@@ -1801,7 +1892,6 @@ struct ContentView: View {
             return
         }
 
-        // Прямая передача файла через пункт "Копировать в PlayBook"
         if url.isFileURL {
             routeIncomingFile(url)
         }
