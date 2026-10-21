@@ -173,15 +173,12 @@ struct ContentView: View {
     @State private var isDesignSectionExpanded = false
     @State private var errorMessage = ""
     @State private var showingCreateFolder = false
-    @State private var showingBookPicker = false
     @State private var newFolderName = ""
     @State private var folders: [String] = []
     @State private var selectedFolder: String? = nil
     @State private var fileFolders: [String: String] = [:]
-    @State private var didAttemptRestore = false
     @State private var sleepTimerTotal: Int = 0
     @State private var sleepTimerRemaining: TimeInterval = 0
-    @State private var sleepTimerStartedAt: Date?
     @State private var sleepTimerExpired = false
     @State private var sleepTimerStartedPosition: Double = 0
     @State private var sleepBookmarkPosition: Double = 0
@@ -1016,7 +1013,6 @@ struct ContentView: View {
         if minutes <= 0 {
             sleepTimerTotal = 0
             sleepTimerRemaining = 0
-            sleepTimerStartedAt = nil
             sleepTimerStartedPosition = 0
             sleepTimerExpired = false
             return
@@ -1024,7 +1020,6 @@ struct ContentView: View {
 
         sleepTimerTotal = minutes
         sleepTimerRemaining = TimeInterval(minutes * 60)
-        sleepTimerStartedAt = Date()
         sleepTimerStartedPosition = player?.currentTime ?? 0
         sleepTimerExpired = false
 
@@ -1233,21 +1228,6 @@ struct ContentView: View {
                 }
                 .buttonStyle(.plain)
 
-                Button {
-                    showingBookPicker = true
-                } label: {
-                    Image(systemName: "plus")
-                        .font(.system(size: 16, weight: .medium))
-                        .foregroundStyle(theme.ui)
-                        .padding(.horizontal, 16)
-                        .padding(.vertical, 10)
-                        .overlay {
-                            Capsule()
-                                .stroke(theme.ui.opacity(0.8), lineWidth: 1)
-                        }
-                }
-                .buttonStyle(.plain)
-
                 Spacer()
             }
             .padding(.horizontal, 24)
@@ -1266,13 +1246,6 @@ struct ContentView: View {
             }
         } message: {
             Text("Введите название папки")
-        }
-        .fileImporter(
-            isPresented: $showingBookPicker,
-            allowedContentTypes: bookTypes,
-            allowsMultipleSelection: true
-        ) { result in
-            importPickedBooks(result)
         }
         .overlay(alignment: .bottom) {
             if let error = ebookStore.errorMessage {
@@ -1810,77 +1783,6 @@ struct ContentView: View {
         }
     }
 
-    // Типы файлов для системного выбора книг (кнопка «+» в библиотеке)
-    private var bookTypes: [UTType] {
-        var types: [UTType] = []
-
-        if let fb2 = UTType(filenameExtension: "fb2") {
-            types.append(fb2)
-        }
-        if let epub = UTType(filenameExtension: "epub") {
-            types.append(epub)
-        }
-        types.append(.xml)
-        types.append(.text)
-
-        return types.isEmpty ? [.data] : types
-    }
-
-    // Импорт книг через системный выбор файлов: работает всегда,
-    // независимо от учётки разработчика и Share-расширения
-    private func importPickedBooks(_ result: Result<[URL], Error>) {
-        guard case .success(let urls) = result, !urls.isEmpty else { return }
-
-        let documents = FileManager.default.urls(
-            for: .documentDirectory,
-            in: .userDomainMask
-        )[0]
-
-        var lastBook: EBook?
-
-        for sourceURL in urls {
-            let didAccess = sourceURL.startAccessingSecurityScopedResource()
-            defer {
-                if didAccess {
-                    sourceURL.stopAccessingSecurityScopedResource()
-                }
-            }
-
-            let baseName = sourceURL.deletingPathExtension().lastPathComponent
-            let fileExtension = sourceURL.pathExtension
-            var destination = documents.appendingPathComponent(
-                sourceURL.lastPathComponent
-            )
-            var number = 2
-
-            while FileManager.default.fileExists(atPath: destination.path) {
-                destination = documents.appendingPathComponent(
-                    "\(baseName) (\(number)).\(fileExtension)"
-                )
-                number += 1
-            }
-
-            do {
-                try FileManager.default.copyItem(at: sourceURL, to: destination)
-            } catch {
-                errorMessage = "Не удалось скопировать файл книги"
-                continue
-            }
-
-            if let book = ebookStore.importBook(from: destination) {
-                lastBook = book
-            }
-        }
-
-        if let book = lastBook {
-            readingBook = book
-            readingOriginIsLibrary = true
-            withAnimation(.easeOut(duration: 0.2)) {
-                currentScreenIsReading = true
-            }
-        }
-    }
-
     // Разбор входящего URL: файлы из шторки и прямая передача через «Скопировать»
     private func handleIncomingURL(_ url: URL) {
         if url.scheme == "playbook" {
@@ -1902,48 +1804,9 @@ struct ContentView: View {
 
         if audioExtensions.contains(ext) {
             importIncomingAudio(url)
-        } else if ext == "fb2" || ext == "epub" || ext == "txt" {
+        } else if ext == "epub" || ext == "txt" {
             importIncomingBook(url)
         }
-    }
-
-    private func restoreLastAudio() {
-        guard !didAttemptRestore else { return }
-        didAttemptRestore = true
-
-        let savedFileName = UserDefaults.standard.string(
-            forKey: "playbook.lastFileName"
-        ) ?? ""
-
-        guard !savedFileName.isEmpty else { return }
-
-        let savedPosition = UserDefaults.standard.double(
-            forKey: "playbook.lastPosition"
-        )
-
-        let documentsURL = FileManager.default.urls(
-            for: .documentDirectory,
-            in: .userDomainMask
-        )[0]
-
-        let savedURL = documentsURL.appendingPathComponent(savedFileName)
-
-        guard FileManager.default.fileExists(atPath: savedURL.path) else {
-            return
-        }
-
-        loadAudio(.success([savedURL]))
-
-        guard let player else { return }
-
-        player.currentTime = max(
-            0,
-            min(savedPosition - 2, player.duration)
-        )
-
-        progress = player.currentTime
-        isPlaying = false
-        player.pause()
     }
 
     private func togglePlayback() {
