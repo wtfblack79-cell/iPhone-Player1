@@ -78,6 +78,7 @@ targets:
               public.filename-extension:
                 - fb2
 
+
   PlayBookShare:
     type: app-extension
     platform: iOS
