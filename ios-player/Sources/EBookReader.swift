@@ -65,60 +65,54 @@ final class EBookStore: ObservableObject {
     }
 
     // MARK: Импорт
+    // Книгу приносит iOS: «Поделиться» → значок PlayBook → «Скопировать»,
+    // либо открытие файла из Файлов, почты или мессенджера.
+    // Файл копируется в Documents/EBooks, поэтому книга живёт и после перезапуска.
 
     @discardableResult
-    func importBook(from result: Result<[URL], Error>) -> EBook? {
-        switch result {
-        case .success(let urls):
-            guard let url = urls.first else { return nil }
+    func importBook(from url: URL) -> EBook? {
+        let ext = url.pathExtension.lowercased()
+        guard ext == "epub" || ext == "txt" || ext == "fb2" else {
+            errorMessage = "Поддерживаются только файлы EPUB, TXT и FB2"
+            return nil
+        }
 
-            let ext = url.pathExtension.lowercased()
-            guard ext == "epub" || ext == "txt" || ext == "fb2" else {
-                errorMessage = "Поддерживаются только файлы EPUB, TXT и FB2"
-                return nil
+        let accessGranted = url.startAccessingSecurityScopedResource()
+        defer {
+            if accessGranted {
+                url.stopAccessingSecurityScopedResource()
             }
+        }
 
-            let accessGranted = url.startAccessingSecurityScopedResource()
-            defer {
-                if accessGranted {
-                    url.stopAccessingSecurityScopedResource()
-                }
-            }
+        guard let data = try? Data(contentsOf: url) else {
+            errorMessage = "Не удалось прочитать файл книги"
+            return nil
+        }
 
-            guard let data = try? Data(contentsOf: url) else {
-                errorMessage = "Не удалось прочитать файл книги"
-                return nil
-            }
+        do {
+            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
 
-            do {
-                try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+            let fileName = UUID().uuidString + "." + ext
+            try data.write(to: directory.appendingPathComponent(fileName))
 
-                let fileName = UUID().uuidString + "." + ext
-                try data.write(to: directory.appendingPathComponent(fileName))
+            isLoading = true
+            let fallbackTitle = url.deletingPathExtension().lastPathComponent
 
-                isLoading = true
-                let fallbackTitle = url.deletingPathExtension().lastPathComponent
+            let bookTitle = EBookParser.bookTitle(
+                data: data,
+                fileExtension: ext,
+                fallback: fallbackTitle
+            )
 
-                let bookTitle = EBookParser.bookTitle(
-                    data: data,
-                    fileExtension: ext,
-                    fallback: fallbackTitle
-                )
-
-                let book = EBook(title: bookTitle, fileName: fileName)
-                books.append(book)
-                saveIndex()
-                isLoading = false
-                errorMessage = nil
-                return book
-            } catch {
-                errorMessage = "Не удалось сохранить книгу: \(error.localizedDescription)"
-                isLoading = false
-                return nil
-            }
-
-        case .failure(let error):
-            errorMessage = error.localizedDescription
+            let book = EBook(title: bookTitle, fileName: fileName)
+            books.append(book)
+            saveIndex()
+            isLoading = false
+            errorMessage = nil
+            return book
+        } catch {
+            errorMessage = "Не удалось сохранить книгу: \(error.localizedDescription)"
+            isLoading = false
             return nil
         }
     }
@@ -603,7 +597,6 @@ struct ReadingScreenView: View {
     @ObservedObject private var theme = PlayTheme.shared
 
     @State private var isMenuOpen = false
-    @State private var showingImporter = false
     @State private var currentBook: EBook?
     @State private var currentText = ""
 
@@ -638,17 +631,6 @@ struct ReadingScreenView: View {
                         .background(Color.red.opacity(0.75))
                         .cornerRadius(12)
                         .padding(.bottom, 24)
-                }
-            }
-        }
-        .fileImporter(
-            isPresented: $showingImporter,
-            allowedContentTypes: [.epub, .plainText, EBookFileType.fb2],
-            allowsMultipleSelection: false
-        ) { result in
-            if let book = store.importBook(from: result) {
-                withAnimation(.easeOut(duration: 0.2)) {
-                    open(book)
                 }
             }
         }
@@ -724,12 +706,6 @@ struct ReadingScreenView: View {
                         CustomMenu(
                             title: nil,
                             options: [
-                                CustomMenuOption(title: "Добавить книгу", systemImage: "plus") {
-                                    isMenuOpen = false
-                                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
-                                        showingImporter = true
-                                    }
-                                },
                                 CustomMenuOption(title: "К списку книг", systemImage: "books.vertical") {
                                     isMenuOpen = false
                                     closeBook()
@@ -769,7 +745,7 @@ struct ReadingScreenView: View {
                         .font(AppFont.bold(22))
                         .foregroundStyle(.white)
 
-                    Text("Добавьте FB2, EPUB или TXT через меню «⋯»")
+                    Text("Добавьте книги через меню «Поделиться» → «Скопировать в PlayBook»")
                         .font(AppFont.regular(15))
                         .foregroundStyle(.white.opacity(0.7))
                         .multilineTextAlignment(.center)
