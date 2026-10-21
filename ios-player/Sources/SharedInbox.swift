@@ -1,80 +1,122 @@
-import Foundation
+import UIKit
 
-// MARK: - Приём файлов, переданных через Share Extension
-// Расширение складывает файлы в папку Inbox внутри app group.
-// Этот модуль забирает их оттуда при запуске приложения или по URL-схеме.
+// Приёмник файлов, переданных из Share Extension.
+// Забирает файлы и из общей папки App Group, и из буфера обмена
+// (канал для бесплатной учётки разработчика), чистит за собой.
+//
+// Ключи пометок совместимы с Sources/PlayBookShare/ShareViewController.swift
 
 enum SharedInbox {
 
-    // Должно совпадать с ShareViewController.swift в расширении
     private static let appGroupID = "group.com.personal.iphoneplayer"
     private static let inboxFolderName = "Inbox"
+    private static let dataKey = "com.personal.iphoneplayer.shared-file.data"
+    private static let nameKey = "com.personal.iphoneplayer.shared-file.name"
+    private static let sessionKey = "com.personal.iphoneplayer.shared-file.session"
+    private static let processedSessionsKey = "playbook.sharedInbox.processedSessions"
 
-    private static let bookExtensions: Set<String> = ["fb2", "epub", "txt"]
-    private static let audioExtensions: Set<String> = [
-        "mp3", "m4a", "m4b", "aac", "wav", "aiff", "aif", "flac", "caf"
-    ]
-
-    // MARK: Публичный API
-
-    /// Забирает файлы из Inbox и маршрутизирует их:
-    /// книги — в EBookStore, аудио — в корень Documents (там его сканирует аудиобиблиотека).
-    /// Логика аудиобиблиотеки при этом не затрагивается.
-    @MainActor
-    static func consume(ebookStore: EBookStore) {
-        let fileManager = FileManager.default
-
-        guard let base = fileManager.containerURL(
-            forSecurityApplicationGroupIdentifier: appGroupID
-        ) else { return }
-
-        let inbox = base.appendingPathComponent(inboxFolderName, isDirectory: true)
-        guard let files = try? fileManager.contentsOfDirectory(at: inbox, includingPropertiesForKeys: nil) else {
-            return
-        }
-
-        let documents = fileManager.urls(for: .documentDirectory, in: .userDomainMask)[0]
-
-        for file in files where !file.hasDirectoryPath {
-            let ext = file.pathExtension.lowercased()
-
-            do {
-                if bookExtensions.contains(ext) {
-                    // Книга уходит в штатный импорт EBookStore —
-                    // файл копируется в Documents/EBooks и появляется в библиотеке
-                    _ = ebookStore.importBook(from: file)
-                    try? fileManager.removeItem(at: file)
-                } else if audioExtensions.contains(ext) {
-                    let dest = uniqueURL(in: documents, suggestedName: file.lastPathComponent)
-                    try fileManager.moveItem(at: file, to: dest)
-                } else {
-                    // Неизвестный тип — удаляем, чтобы Inbox не засорялся
-                    try? fileManager.removeItem(at: file)
-                }
-            } catch {
-                // Файл останется в Inbox и будет обработан при следующем запуске
-            }
-        }
+    // Забирает все переданные файлы и возвращает их локальные URL.
+    static func takeFiles() -> [URL] {
+        var urls: [URL] = []
+        urls.append(contentsOf: takeFromAppGroup())
+        urls.append(contentsOf: takeFromPasteboard())
+        return urls
     }
 
-    // MARK: Вспомогательное
+    // MARK: - Папка для принятых файлов
 
-    private static func uniqueURL(in directory: URL, suggestedName: String) -> URL {
+    private static func importDirectory() -> URL {
+        let dir = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("SharedInboxImport", isDirectory: true)
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        return dir
+    }
+
+    // MARK: - Путь 1: общая папка App Group
+
+    private static func takeFromAppGroup() -> [URL] {
+        guard let container = FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: appGroupID) else {
+            return []
+        }
+
+        let inbox = container.appendingPathComponent(inboxFolderName, isDirectory: true)
         let fileManager = FileManager.default
-        let name = (suggestedName as NSString).lastPathComponent
-        let stem = (name as NSString).deletingPathExtension
-        let ext = (name as NSString).pathExtension
+        guard let names = try? fileManager.contentsOfDirectory(atPath: inbox.path), !names.isEmpty else {
+            return []
+        }
 
-        var dest = directory.appendingPathComponent(name)
+        let destination = importDirectory()
+        var urls: [URL] = []
+
+        for name in names.sorted() {
+            let source = inbox.appendingPathComponent(name)
+            guard fileManager.fileExists(atPath: source.path) else { continue }
+
+            let target = uniqueTarget(in: destination, preferredName: name)
+            if (try? fileManager.copyItem(at: source, to: target)) != nil {
+                urls.append(target)
+                try? fileManager.removeItem(at: source)
+            }
+        }
+
+        return urls
+    }
+
+    // MARK: - Путь 2: буфер обмена (файлы с нашими пометками)
+
+    private static func takeFromPasteboard() -> [URL] {
+        let items = UIPasteboard.general.items
+        guard !items.isEmpty else { return [] }
+
+        var processed = Set(UserDefaults.standard.stringArray(forKey: processedSessionsKey) ?? [])
+
+        var collected: [(session: String, name: String, data: Data)] = []
+        for item in items {
+            guard let data = item[dataKey] as? Data else { continue }
+            let session = (item[sessionKey] as? String) ?? UUID().uuidString
+            guard !processed.contains(session) else { continue }
+            let name = (item[nameKey] as? String) ?? "file-\(UUID().uuidString.prefix(6)).bin"
+            collected.append((session, name, data))
+        }
+
+        guard !collected.isEmpty else { return [] }
+
+        let destination = importDirectory()
+        var urls: [URL] = []
+
+        for entry in collected {
+            let target = uniqueTarget(in: destination, preferredName: entry.name)
+            do {
+                try entry.data.write(to: target)
+                urls.append(target)
+                processed.insert(entry.session)
+            } catch {
+                continue
+            }
+        }
+
+        UserDefaults.standard.set(Array(processed), forKey: processedSessionsKey)
+        return urls
+    }
+
+    // MARK: - Имена файлов
+
+    private static func uniqueTarget(in directory: URL, preferredName: String) -> URL {
+        let fileManager = FileManager.default
+        let base = (preferredName as NSString).lastPathComponent
+        var candidate = directory.appendingPathComponent(base)
         var counter = 1
 
-        while fileManager.fileExists(atPath: dest.path) {
-            dest = ext.isEmpty
-                ? directory.appendingPathComponent("\(stem) (\(counter))")
-                : directory.appendingPathComponent("\(stem) (\(counter)).\(ext)")
+        while fileManager.fileExists(atPath: candidate.path) {
+            let nameNoExt = (base as NSString).deletingPathExtension
+            let ext = (base as NSString).pathExtension
+            let newName = ext.isEmpty
+                ? "\(nameNoExt) (\(counter))"
+                : "\(nameNoExt) (\(counter)).\(ext)"
+            candidate = directory.appendingPathComponent(newName)
             counter += 1
         }
 
-        return dest
+        return candidate
     }
 }
