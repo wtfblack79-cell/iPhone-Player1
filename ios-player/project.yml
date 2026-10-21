@@ -35,6 +35,14 @@ targets:
         UIBackgroundModes:
           - audio
         LSSupportsOpeningDocumentsInPlace: false
+        UTImportedTypeDeclarations:
+          - UTTypeIdentifier: com.fictionbook.fb2
+            UTTypeDescription: FictionBook 2
+            UTTypeConformsTo:
+              - public.xml
+            UTTypeTagSpecification:
+              public.filename-extension:
+                - fb2
         CFBundleURLTypes:
           - CFBundleURLName: com.personal.iphoneplayer
             CFBundleURLSchemes:
@@ -54,29 +62,22 @@ targets:
               - public.aiff-audio
               - com.apple.coreaudio-format
               - org.xiph.flac
-          - CFBundleTypeName: FictionBook 2 (FB2)
+          - CFBundleTypeName: Аудиокнига FB2
             CFBundleTypeRole: Viewer
-            LSHandlerRank: Owner
+            LSHandlerRank: Default
             LSItemContentTypes:
               - com.fictionbook.fb2
-          - CFBundleTypeName: Electronic Publication (EPUB)
+          - CFBundleTypeName: Электронная книга EPUB
             CFBundleTypeRole: Viewer
-            LSHandlerRank: Owner
+            LSHandlerRank: Default
             LSItemContentTypes:
               - org.idpf.epub-container
-          - CFBundleTypeName: Text
+          - CFBundleTypeName: Текст
             CFBundleTypeRole: Viewer
-            LSHandlerRank: Owner
+            LSHandlerRank: Default
             LSItemContentTypes:
               - public.plain-text
-        UTImportedTypeDeclarations:
-          - UTTypeIdentifier: com.fictionbook.fb2
-            UTTypeDescription: FictionBook 2
-            UTTypeConformsTo:
-              - public.xml
-            UTTypeTagSpecification:
-              public.filename-extension:
-                - fb2
+
 
   PlayBookShare:
     type: app-extension
