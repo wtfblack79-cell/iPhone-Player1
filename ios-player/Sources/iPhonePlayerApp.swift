@@ -169,6 +169,8 @@ struct ContentView: View {
     @State private var currentScreenIsSettings = false
     @State private var currentScreenIsColor = false
     @State private var currentScreenIsReading = false
+    @State private var readingBook: EBook?
+    @State private var readingOriginIsLibrary = false
     @State private var isDesignSectionExpanded = false
     @State private var errorMessage = ""
     @State private var showingCreateFolder = false
@@ -233,9 +235,19 @@ struct ContentView: View {
             } else if currentScreenIsSettings {
                 settingsView
             } else if currentScreenIsReading {
-                ReadingScreenView(store: ebookStore) {
+                ReadingScreenView(
+                    store: ebookStore,
+                    initialBook: readingBook
+                ) {
                     withAnimation(.easeOut(duration: 0.2)) {
                         currentScreenIsReading = false
+
+                        if readingOriginIsLibrary {
+                            currentScreenIsLibrary = true
+                        }
+
+                        readingBook = nil
+                        readingOriginIsLibrary = false
                     }
                 }
             } else {
@@ -574,10 +586,10 @@ struct ContentView: View {
         ZStack {
             if currentScreenIsColor || currentScreenIsSettings {
                 backgroundLayer(image: settingsBackground)
-            } else if currentScreenIsLibrary {
-                backgroundLayer(image: libraryBackground)
             } else if currentScreenIsReading {
                 backgroundLayer(image: homeBackground)
+            } else if currentScreenIsLibrary {
+                backgroundLayer(image: libraryBackground)
             } else {
                 backgroundLayer(image: homeBackground)
             }
@@ -828,33 +840,44 @@ struct ContentView: View {
             .padding(.horizontal, 4)
             .padding(.bottom, 20)
 
-            HStack(spacing: 35) {
-                seekButton(seconds: -15, symbol: "gobackward.15")
+            ZStack(alignment: .trailing) {
+                HStack(spacing: 35) {
+                    seekButton(seconds: -15, symbol: "gobackward.15")
 
-                Button {
-                    togglePlayback()
-                } label: {
-                    Image(
-                        systemName: isPlaying
-                            ? "pause.circle.fill"
-                            : "play.circle.fill"
-                    )
-                    .font(.system(size: 64))
-                    .foregroundStyle(theme.ui)
+                    Button {
+                        togglePlayback()
+                    } label: {
+                        Image(
+                            systemName: isPlaying
+                                ? "pause.circle.fill"
+                                : "play.circle.fill"
+                        )
+                        .font(.system(size: 64))
+                        .foregroundStyle(theme.ui)
+                    }
+                    .disabled(player == nil)
+
+                    seekButton(seconds: 15, symbol: "goforward.15")
                 }
-                .disabled(player == nil)
-
-                seekButton(seconds: 15, symbol: "goforward.15")
+                .buttonStyle(.plain)
+                .frame(maxWidth: .infinity)
 
                 Button {
-                    currentScreenIsReading = true
+                    readingBook = nil
+                    readingOriginIsLibrary = false
+                    withAnimation(.easeOut(duration: 0.2)) {
+                        currentScreenIsReading = true
+                    }
                 } label: {
                     Image(systemName: "book.fill")
-                        .font(.system(size: 30))
+                        .font(.system(size: 22, weight: .medium))
                         .foregroundStyle(theme.ui)
+                        .frame(width: 44, height: 44)
+                        .background(Color.white.opacity(0.12))
+                        .clipShape(Circle())
                 }
+                .buttonStyle(.plain)
             }
-            .buttonStyle(.plain)
             .frame(maxWidth: .infinity)
             .padding(.bottom, 24)
 
@@ -1059,8 +1082,8 @@ struct ContentView: View {
                 .font(AppFont.bold(34))
                 .foregroundStyle(theme.ui)
 
-            if libraryFiles.isEmpty && folders.isEmpty {
-                Text("Аудиокниг пока нет")
+            if libraryFiles.isEmpty && folders.isEmpty && ebookStore.books.isEmpty {
+                Text("Пока нет книг")
                     .font(AppFont.regular(15))
                     .foregroundStyle(.white.opacity(0.7))
             } else {
@@ -1157,6 +1180,46 @@ struct ContentView: View {
                                 deleteFile(file)
                             } label: {
                                 Label("Удалить аудио", systemImage: "trash")
+                            }
+                        }
+                    }
+
+                    if selectedFolder == nil && !ebookStore.books.isEmpty {
+                        Text("Электронные книги")
+                            .font(AppFont.italic(13))
+                            .foregroundStyle(.white.opacity(0.55))
+                            .listRowBackground(Color.clear)
+
+                        ForEach(ebookStore.books) { book in
+                            Button {
+                                readingBook = book
+                                readingOriginIsLibrary = true
+                                currentScreenIsLibrary = false
+                                withAnimation(.easeOut(duration: 0.2)) {
+                                    currentScreenIsReading = true
+                                }
+                            } label: {
+                                HStack(spacing: 10) {
+                                    Image(systemName: "doc.text")
+                                        .font(.system(size: 13, weight: .medium))
+                                        .foregroundStyle(theme.ui)
+
+                                    Text(book.title)
+                                        .font(AppFont.regular(17))
+                                        .foregroundStyle(.white)
+                                        .lineLimit(2)
+                                }
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .contentShape(Rectangle())
+                            }
+                            .buttonStyle(.plain)
+                            .listRowBackground(Color.white.opacity(0.08))
+                            .contextMenu {
+                                Button(role: .destructive) {
+                                    ebookStore.removeBook(book)
+                                } label: {
+                                    Label("Удалить книгу", systemImage: "trash")
+                                }
                             }
                         }
                     }
