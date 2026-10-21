@@ -2,6 +2,23 @@ import SwiftUI
 import UniformTypeIdentifiers
 import Compression
 
+// MARK: - Типы файлов книг
+
+enum EBookFileType {
+    // Системного типа для fb2 в iOS нет — объявляем сами:
+    // сначала пробуем зарегистрированный в системе (если какой-то
+    // читательский app уже объявил расширение), иначе свой.
+    static let fb2: UTType = {
+        if let registered = UTType(filenameExtension: "fb2") {
+            return registered
+        }
+        if let declared = try? UTType(exportedAs: "com.fictionbook.fb2", conformingTo: .xml) {
+            return declared
+        }
+        return .xml
+    }()
+}
+
 // MARK: - Модель электронной книги
 
 struct EBook: Identifiable, Codable {
@@ -9,18 +26,6 @@ struct EBook: Identifiable, Codable {
     var title: String
     var fileName: String
 }
-
-// MARK: - Тип файла FB2
-// В iOS нет системного типа для расширения .fb2, поэтому объявляем его сами:
-// сначала пробуем зарегистрированный системой тип (его мог добавить другой
-// читательский app), иначе создаём свой по идентификатору FictionBook.
-
-let fb2Type: UTType = {
-    if let known = UTType(filenameExtension: "fb2") {
-        return known
-    }
-    return UTType(exportedAs: "com.fictionbook.fb2", conformingTo: .xml)
-}()
 
 // MARK: - Хранилище электронных книг
 // Копирует файлы в Documents/EBooks, поэтому книги переживают перезапуск
@@ -101,7 +106,6 @@ final class EBookStore: ObservableObject {
                     fileExtension: ext,
                     fallback: fallbackTitle
                 )
-                let text = EBookParser.parse(data: data, fileExtension: ext)
 
                 let book = EBook(title: bookTitle, fileName: fileName)
                 books.append(book)
@@ -126,7 +130,9 @@ final class EBookStore: ObservableObject {
     func removeBook(_ book: EBook) {
         books.removeAll { $0.id == book.id }
         saveIndex()
-        try? FileManager.default.removeItem(at: directory.appendingPathComponent(book.fileName))
+
+        let url = directory.appendingPathComponent(book.fileName)
+        try? FileManager.default.removeItem(at: url)
     }
 
     // MARK: Чтение
@@ -134,7 +140,10 @@ final class EBookStore: ObservableObject {
     func text(for book: EBook) -> String? {
         let url = directory.appendingPathComponent(book.fileName)
         guard let data = try? Data(contentsOf: url) else { return nil }
-        return EBookParser.parse(data: data, fileExtension: (book.fileName as NSString).pathExtension.lowercased())
+        return EBookParser.parse(
+            data: data,
+            fileExtension: (book.fileName as NSString).pathExtension.lowercased()
+        )
     }
 }
 
@@ -144,21 +153,6 @@ enum EBookParser {
     // MARK: Публичный API
 
     static func bookTitle(data: Data, fileExtension: String, fallback: String) -> String {
-        if fileExtension == "fb2" {
-            let xml = decodeString(data)
-            let titleInfo = firstGroup(in: xml, pattern: "<title-info\\b[^>]*>(.*?)</title-info>") ?? xml
-            if let raw = firstGroup(
-                in: titleInfo,
-                pattern: "<(?:\\w+:)?book-title\\b[^>]*>(.*?)</(?:\\w+:)?book-title>"
-            ) {
-                let plain = plainText(fromHTML: raw)
-                    .trimmingCharacters(in: .whitespacesAndNewlines)
-                if !plain.isEmpty {
-                    return plain
-                }
-            }
-        }
-
         if fileExtension == "epub" {
             let files = unzip(data)
             if let opfPath = opfPath(in: files), let opfData = files[opfPath] {
@@ -172,6 +166,21 @@ enum EBookParser {
                 }
             }
         }
+
+        if fileExtension == "fb2" {
+            let xml = fb2String(from: data)
+            if let title = firstGroup(
+                in: xml,
+                pattern: "<(?:\\w+:)?book-title[^>]*>(.*?)</(?:\\w+:)?book-title>"
+            ) {
+                let plain = plainText(fromHTML: title)
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                if !plain.isEmpty {
+                    return plain
+                }
+            }
+        }
+
         return fallback
     }
 
@@ -186,6 +195,68 @@ enum EBookParser {
         default:
             return ""
         }
+    }
+
+    // MARK: FB2 (FictionBook)
+
+    private static func text(fromFB2 data: Data) -> String {
+        let xml = fb2String(from: data)
+
+        // Берём только первый body без атрибута name —
+        // сноски хранятся в отдельных body с name="notes"
+        var paragraphs: [String] = []
+
+        if let bodyXML = firstGroup(in: xml, pattern: "<body(?:\\s[^>]*)?>(.*?)</body>") {
+            paragraphs = fb2Paragraphs(bodyXML)
+        }
+
+        if paragraphs.isEmpty {
+            paragraphs = fb2Paragraphs(xml)
+        }
+
+        return normalize(paragraphs.joined(separator: "\n\n"))
+    }
+
+    private static func fb2Paragraphs(_ xml: String) -> [String] {
+        var result: [String] = []
+
+        let pattern = "<p(?:\\s[^>]*)?>.*?</p>|<p(?:\\s[^>]*)?/>|<empty-line\\s*/?>"
+
+        for match in allMatches(in: xml, pattern: pattern) {
+            let lower = match.lowercased()
+
+            if lower.contains("empty-line") {
+                result.append("")
+                continue
+            }
+
+            guard let content = firstGroup(in: match, pattern: "<p(?:\\s[^>]*)?>(.*?)</p>") else {
+                continue
+            }
+
+            let paragraph = plainText(fromHTML: content)
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+
+            if !paragraph.isEmpty {
+                result.append(paragraph)
+            }
+        }
+
+        return result
+    }
+
+    private static func fb2String(from data: Data) -> String {
+        if let utf8 = String(data: data, encoding: .utf8) {
+            return utf8
+        }
+
+        // Windows-1251 (kCFStringEncodingWindowsCyrillic = 0x04E1)
+        let nsEncoding = CFStringConvertEncodingToNSStringEncoding(CFStringEncoding(0x04E1))
+        if let cyrillic = String(data: data, encoding: String.Encoding(rawValue: nsEncoding)) {
+            return cyrillic
+        }
+
+        return String(decoding: data, as: UTF8.self)
     }
 
     // MARK: TXT (UTF-8 с откатом на Windows-1251)
@@ -277,40 +348,6 @@ enum EBookParser {
         String(data: data, encoding: .utf8)
             ?? String(data: data, encoding: .isoLatin1)
             ?? String(decoding: data, as: UTF8.self)
-    }
-
-    // MARK: FB2 (FictionBook XML)
-
-    private static func text(fromFB2 data: Data) -> String {
-        let xml = decodeString(data)
-        var paragraphs: [String] = []
-
-        for body in allMatches(in: xml, pattern: "<body\\b[^>]*>.*?</body>") {
-            // Сноски (body name="notes") и комментарии в текст книги не включаем
-            if let name = firstGroup(in: body, pattern: "<body\\b[^>]*name\\s*=\\s*\"([^\"]*)\""),
-               name.lowercased().contains("note") || name.lowercased().contains("comment") {
-                continue
-            }
-
-            guard let content = firstGroup(in: body, pattern: "<body\\b[^>]*>(.*?)</body>") else {
-                continue
-            }
-
-            for paragraph in allMatches(in: content, pattern: "<p\\b[^>]*>.*?</p>") {
-                let text = plainText(fromHTML: paragraph)
-                    .trimmingCharacters(in: .whitespacesAndNewlines)
-                if !text.isEmpty {
-                    paragraphs.append(text)
-                }
-            }
-        }
-
-        if paragraphs.isEmpty {
-            // Резерв: если тегов <p> не нашлось, снимаем все теги разом
-            return normalize(plainText(fromHTML: xml))
-        }
-
-        return normalize(paragraphs.joined(separator: "\n\n"))
     }
 
     // MARK: ZIP
@@ -563,8 +600,8 @@ enum EBookParser {
 
 struct ReadingScreenView: View {
     @ObservedObject var store: EBookStore
-    var initialBook: EBook? = nil
     let onBack: () -> Void
+    var initialBook: EBook? = nil
 
     @ObservedObject private var theme = PlayTheme.shared
 
@@ -607,21 +644,20 @@ struct ReadingScreenView: View {
                 }
             }
         }
+        .onAppear {
+            if let initialBook = initialBook, currentBook == nil {
+                open(initialBook)
+            }
+        }
         .fileImporter(
             isPresented: $showingImporter,
-            allowedContentTypes: [.epub, .plainText, fb2Type],
+            allowedContentTypes: [.epub, .plainText, EBookFileType.fb2],
             allowsMultipleSelection: false
         ) { result in
             if let book = store.importBook(from: result) {
                 withAnimation(.easeOut(duration: 0.2)) {
                     open(book)
                 }
-            }
-        }
-        .onAppear {
-            // Книга, переданную из библиотеки, открываем сразу
-            if let book = initialBook, currentBook == nil {
-                open(book)
             }
         }
     }
@@ -693,10 +729,13 @@ struct ReadingScreenView: View {
                             options: [
                                 CustomMenuOption(title: "Добавить книгу", systemImage: "plus") {
                                     isMenuOpen = false
-                                    // Ждём, пока меню исчезнет из иерархии:
-                                    // SwiftUI отменяет fileImporter, если его
-                                    // запустил вид, удаляемый в этом же обновлении
-                                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
+
+                                    // Показываем fileImporter после того,
+                                    // как меню исчезнет из иерархии — иначе
+                                    // SwiftUI отменяет показ диалога
+                                    DispatchQueue.main.asyncAfter(
+                                        deadline: .now() + 0.35
+                                    ) {
                                         showingImporter = true
                                     }
                                 },
@@ -739,7 +778,7 @@ struct ReadingScreenView: View {
                         .font(AppFont.bold(22))
                         .foregroundStyle(.white)
 
-                    Text("Добавьте EPUB, TXT или FB2 через меню «⋯»")
+                    Text("Добавьте EPUB или TXT через меню «⋯»")
                         .font(AppFont.regular(15))
                         .foregroundStyle(.white.opacity(0.7))
                         .multilineTextAlignment(.center)
