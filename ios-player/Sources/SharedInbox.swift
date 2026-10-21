@@ -1,47 +1,58 @@
 import Foundation
 
-// Забирает файлы, положенные Share-расширением в общую папку App Group,
-// и раскладывает их по хранилищам приложения: книги — в EBookStore (Documents/EBooks),
-// аудио — в корень Documents, где их подхватывает аудиобиблиотека.
-
 enum SharedInbox {
-    private static let appGroupID = "group.com.personal.iphoneplayer"
-    private static let inboxFolderName = "Inbox"
-    private static let bookExtensions: Set<String> = ["fb2", "epub", "txt"]
+    static let appGroupId = "group.com.personal.iphoneplayer"
 
-    @MainActor
-    static func consume(ebookStore: EBookStore) {
-        let fileManager = FileManager.default
+    static func hasPendingFiles() -> Bool {
+        !inboxURLs().isEmpty
+    }
 
-        guard let container = fileManager.containerURL(forSecurityApplicationGroupIdentifier: appGroupID) else {
-            return
-        }
+    // Забирает файлы, оставленные share-расширением, и перемещает их
+    // во временную папку приложения. Возвращает URL этих файлов.
+    // Файлы убираются из Inbox, чтобы при следующем запуске не дублировались.
+    static func takeFiles() -> [URL] {
+        let urls = inboxURLs()
+        guard !urls.isEmpty else { return [] }
 
-        let inbox = container.appendingPathComponent(inboxFolderName, isDirectory: true)
+        let staging = FileManager.default.temporaryDirectory
+            .appendingPathComponent("SharedInbox", isDirectory: true)
 
-        guard let files = try? fileManager.contentsOfDirectory(at: inbox, includingPropertiesForKeys: [.isRegularFileKey]) else {
-            return
-        }
+        try? FileManager.default.createDirectory(
+            at: staging,
+            withIntermediateDirectories: true
+        )
 
-        let documents = fileManager.urls(for: .documentDirectory, in: .userDomainMask)[0]
+        var result: [URL] = []
 
-        for file in files where file.lastPathComponent != ".DS_Store" {
-            let ext = file.pathExtension.lowercased()
+        for url in urls {
+            let destination = staging.appendingPathComponent(url.lastPathComponent)
+            try? FileManager.default.removeItem(at: destination)
 
-            if bookExtensions.contains(ext) {
-                // Книга: штатный импорт приложения (копирует в Documents/EBooks и парсит название)
-                _ = ebookStore.importBook(from: file)
-                try? fileManager.removeItem(at: file)
-            } else {
-                // Аудио: кладём в корень Documents, где его сканирует аудиобиблиотека
-                let destination = documents.appendingPathComponent(file.lastPathComponent)
-
-                if fileManager.fileExists(atPath: destination.path) {
-                    try? fileManager.removeItem(at: file)
-                } else {
-                    try? fileManager.moveItem(at: file, to: destination)
-                }
+            do {
+                try FileManager.default.moveItem(at: url, to: destination)
+                result.append(destination)
+            } catch {
+                // файл с таким именем уже в staging — пропускаем дубликат
             }
         }
+
+        return result
+    }
+
+    private static func inboxURLs() -> [URL] {
+        guard
+            let container = FileManager.default.containerURL(
+                forSecurityApplicationGroupIdentifier: appGroupId
+            )
+        else {
+            return []
+        }
+
+        let inbox = container.appendingPathComponent("Inbox", isDirectory: true)
+
+        return (try? FileManager.default.contentsOfDirectory(
+            at: inbox,
+            includingPropertiesForKeys: nil
+        )) ?? []
     }
 }
