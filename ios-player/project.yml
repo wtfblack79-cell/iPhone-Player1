@@ -59,6 +59,7 @@ targets:
             LSHandlerRank: Owner
             LSItemContentTypes:
               - com.fictionbook.fb2
+              - public.xml
           - CFBundleTypeName: Electronic Publication (EPUB)
             CFBundleTypeRole: Viewer
             LSHandlerRank: Owner
@@ -93,14 +94,6 @@ targets:
       path: Sources/PlayBookShare/PlayBookShare-Info.plist
       properties:
         CFBundleDisplayName: PlayBook
-        UTImportedTypeDeclarations:
-          - UTTypeIdentifier: com.fictionbook.fb2
-            UTTypeDescription: FictionBook 2
-            UTTypeConformsTo:
-              - public.xml
-            UTTypeTagSpecification:
-              public.filename-extension:
-                - fb2
         NSExtension:
           NSExtensionPointIdentifier: com.apple.share-services
           NSExtensionPrincipalClass: $(PRODUCT_MODULE_NAME).ShareViewController
@@ -122,11 +115,7 @@ targets:
                     ANY $attachment.registeredTypeIdentifiers UTI-CONFORMS-TO "com.microsoft.waveform-audio" ||
                     ANY $attachment.registeredTypeIdentifiers UTI-CONFORMS-TO "public.aiff-audio" ||
                     ANY $attachment.registeredTypeIdentifiers UTI-CONFORMS-TO "com.apple.coreaudio-format" ||
-                    ANY $attachment.registeredTypeIdentifiers UTI-CONFORMS-TO "org.xiph.flac" ||
-                    ANY $attachment.registeredTypeIdentifiers UTI-CONFORMS-TO "com.fictionbook.fb2" ||
-                    ANY $attachment.registeredTypeIdentifiers UTI-CONFORMS-TO "org.idpf.epub-container" ||
-                    ANY $attachment.registeredTypeIdentifiers UTI-CONFORMS-TO "public.plain-text" ||
-                    ANY $attachment.registeredTypeIdentifiers UTI-CONFORMS-TO "public.xml"
+                    ANY $attachment.registeredTypeIdentifiers UTI-CONFORMS-TO "org.xiph.flac"
                   )
                 ).@count > 0
               ).@count > 0
