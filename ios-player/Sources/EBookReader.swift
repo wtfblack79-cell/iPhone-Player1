@@ -596,6 +596,7 @@ struct ReadingScreenView: View {
     @State private var isMenuOpen = false
     @State private var currentBook: EBook?
     @State private var currentText = ""
+    @State private var showingBookPicker = false
 
     var body: some View {
         ZStack {
@@ -635,6 +636,13 @@ struct ReadingScreenView: View {
             if let book = initialBook {
                 open(book)
             }
+        }
+        .fileImporter(
+            isPresented: $showingBookPicker,
+            allowedContentTypes: [.data],
+            allowsMultipleSelection: true
+        ) { result in
+            handlePickedFiles(result)
         }
     }
 
@@ -703,6 +711,10 @@ struct ReadingScreenView: View {
                         CustomMenu(
                             title: nil,
                             options: [
+                                CustomMenuOption(title: "Добавить книгу", systemImage: "doc.badge.plus") {
+                                    isMenuOpen = false
+                                    showingBookPicker = true
+                                },
                                 CustomMenuOption(title: "К списку книг", systemImage: "books.vertical") {
                                     isMenuOpen = false
                                     closeBook()
@@ -742,7 +754,7 @@ struct ReadingScreenView: View {
                         .font(AppFont.bold(22))
                         .foregroundStyle(.white)
 
-                    Text("Добавьте FB2, EPUB или TXT через меню «⋯»")
+                    Text("Нажмите «⋯» и выберите «Добавить книгу» — поддерживаются FB2, EPUB и TXT")
                         .font(AppFont.regular(15))
                         .foregroundStyle(.white.opacity(0.7))
                         .multilineTextAlignment(.center)
@@ -819,5 +831,28 @@ struct ReadingScreenView: View {
     private func closeBook() {
         currentBook = nil
         currentText = ""
+    }
+
+    // MARK: Добавление книг через системный выбор файлов
+
+    private func handlePickedFiles(_ result: Result<[URL], Error>) {
+        guard case .success(let urls) = result, !urls.isEmpty else { return }
+
+        var lastBook: EBook?
+
+        for url in urls {
+            let fileExtension = url.pathExtension.lowercased()
+            guard fileExtension == "fb2" || fileExtension == "epub" || fileExtension == "txt" else {
+                continue
+            }
+
+            if let book = store.importBook(from: url) {
+                lastBook = book
+            }
+        }
+
+        if let book = lastBook {
+            open(book)
+        }
     }
 }
