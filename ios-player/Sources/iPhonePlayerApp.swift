@@ -164,7 +164,7 @@ struct ContentView: View {
     @State private var duration: Double = 0
     @State private var speed: Float = 1.0
     @State private var showingImporter = false
-    @State private var showingEbookImporter = false
+    @State private var showingBookImporter = false
     @State private var libraryFiles: [URL] = []
     @State private var currentScreenIsLibrary = false
     @State private var currentScreenIsSettings = false
@@ -329,11 +329,18 @@ struct ContentView: View {
             importBackgroundImage(result)
         }
         .fileImporter(
-            isPresented: $showingEbookImporter,
+            isPresented: $showingBookImporter,
             allowedContentTypes: [.epub, .plainText, EBookFileType.fb2],
             allowsMultipleSelection: false
         ) { result in
-            ebookStore.importBook(from: result)
+            if let book = ebookStore.importBook(from: result) {
+                readingBook = book
+                readingOriginIsLibrary = true
+                currentScreenIsLibrary = false
+                withAnimation(.easeOut(duration: 0.2)) {
+                    currentScreenIsReading = true
+                }
+            }
         }
         .overlay(alignment: .topTrailing) {
             if currentScreenIsReading {
@@ -1240,9 +1247,10 @@ struct ContentView: View {
         .safeAreaInset(edge: .bottom, spacing: 0) {
             HStack {
                 Button {
-                    showingEbookImporter = true
+                    newFolderName = ""
+                    showingCreateFolder = true
                 } label: {
-                    Image(systemName: "plus")
+                    Image(systemName: "folder.badge.plus")
                         .font(.system(size: 16, weight: .medium))
                         .foregroundStyle(theme.ui)
                         .padding(.horizontal, 16)
@@ -1258,10 +1266,9 @@ struct ContentView: View {
                 .buttonStyle(.plain)
 
                 Button {
-                    newFolderName = ""
-                    showingCreateFolder = true
+                    showingBookImporter = true
                 } label: {
-                    Image(systemName: "folder.badge.plus")
+                    Image(systemName: "doc.badge.plus")
                         .font(.system(size: 16, weight: .medium))
                         .foregroundStyle(theme.ui)
                         .padding(.horizontal, 16)
@@ -1295,9 +1302,6 @@ struct ContentView: View {
         } message: {
             Text("Введите название папки")
         }
-        .onAppear {
-            loadFolders()
-        }
         .overlay(alignment: .bottom) {
             if let error = ebookStore.errorMessage {
                 Text(error)
@@ -1307,8 +1311,11 @@ struct ContentView: View {
                     .padding(.vertical, 10)
                     .background(Color.red.opacity(0.75))
                     .cornerRadius(12)
-                    .padding(.bottom, 56)
+                    .padding(.bottom, 60)
             }
+        }
+        .onAppear {
+            loadFolders()
         }
     }
 
