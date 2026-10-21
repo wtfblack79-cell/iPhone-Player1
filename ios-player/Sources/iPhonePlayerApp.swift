@@ -238,19 +238,20 @@ struct ContentView: View {
             } else if currentScreenIsReading {
                 ReadingScreenView(
                     store: ebookStore,
-                    initialBook: readingBook
-                ) {
-                    withAnimation(.easeOut(duration: 0.2)) {
-                        currentScreenIsReading = false
+                    onBack: {
+                        withAnimation(.easeOut(duration: 0.2)) {
+                            currentScreenIsReading = false
 
-                        if readingOriginIsLibrary {
-                            currentScreenIsLibrary = true
+                            if readingOriginIsLibrary {
+                                currentScreenIsLibrary = true
+                            }
+
+                            readingBook = nil
+                            readingOriginIsLibrary = false
                         }
-
-                        readingBook = nil
-                        readingOriginIsLibrary = false
-                    }
-                }
+                    },
+                    initialBook: readingBook
+                )
             } else {
                 playerView
             }
