@@ -256,6 +256,11 @@ struct ContentView: View {
         }
         .foregroundStyle(.white)
         .onAppear {
+            // Отложенный импорт файлов, переданных через Share Extension
+            for fileURL in SharedInbox.takeFiles() {
+                routeIncomingFile(fileURL)
+            }
+
             loadBackgrounds()
 
             sleepBookmarkPosition = UserDefaults.standard.double(
@@ -266,6 +271,10 @@ struct ContentView: View {
             ) ?? ""
 
 
+        }
+
+        .onOpenURL { url in
+            handleIncomingURL(url)
         }
 
         .onReceive(timer) { _ in
@@ -1775,6 +1784,36 @@ struct ContentView: View {
             withAnimation(.easeOut(duration: 0.2)) {
                 currentScreenIsReading = true
             }
+        }
+    }
+
+    // MARK: - Обработка файлов, переданных извне ("Поделиться" / "Копировать в PlayBook")
+
+    private func handleIncomingURL(_ url: URL) {
+        // Файлы из Share Extension: расширение кладёт их в общую папку
+        // app group и открывает приложение по схеме playbook://shared-inbox
+        if url.scheme == "playbook" {
+            guard url.host == "shared-inbox" else { return }
+
+            for fileURL in SharedInbox.takeFiles() {
+                routeIncomingFile(fileURL)
+            }
+            return
+        }
+
+        // Прямая передача файла через пункт "Копировать в PlayBook"
+        if url.isFileURL {
+            routeIncomingFile(url)
+        }
+    }
+
+    private func routeIncomingFile(_ url: URL) {
+        let ext = url.pathExtension.lowercased()
+
+        if audioExtensions.contains(ext) {
+            importIncomingAudio(url)
+        } else if ext == "fb2" || ext == "epub" || ext == "txt" {
+            importIncomingBook(url)
         }
     }
 
