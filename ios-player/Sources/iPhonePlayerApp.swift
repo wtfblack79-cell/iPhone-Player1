@@ -164,7 +164,7 @@ struct ContentView: View {
     @State private var duration: Double = 0
     @State private var speed: Float = 1.0
     @State private var showingImporter = false
-    @State private var showingLibraryImporter = false
+    @State private var showingEbookImporter = false
     @State private var libraryFiles: [URL] = []
     @State private var currentScreenIsLibrary = false
     @State private var currentScreenIsSettings = false
@@ -327,13 +327,6 @@ struct ContentView: View {
             allowsMultipleSelection: false
         ) { result in
             importBackgroundImage(result)
-        }
-        .fileImporter(
-            isPresented: $showingLibraryImporter,
-            allowedContentTypes: [.epub, .plainText, .fb2],
-            allowsMultipleSelection: false
-        ) { result in
-            ebookStore.importBook(from: result)
         }
         .overlay(alignment: .topTrailing) {
             if currentScreenIsReading {
@@ -1094,10 +1087,6 @@ struct ContentView: View {
                 Text("Пока нет книг")
                     .font(AppFont.regular(15))
                     .foregroundStyle(.white.opacity(0.7))
-
-                Text("Добавьте книгу кнопкой «+» внизу или через меню чтения")
-                    .font(AppFont.regular(13))
-                    .foregroundStyle(.white.opacity(0.5))
             } else {
                 List {
                     if let selectedFolder {
@@ -1239,6 +1228,17 @@ struct ContentView: View {
                 .scrollContentBackground(.hidden)
             }
 
+            if let error = ebookStore.errorMessage {
+                Text(error)
+                    .font(AppFont.regular(13))
+                    .foregroundStyle(.white)
+                    .multilineTextAlignment(.center)
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 10)
+                    .background(Color.red.opacity(0.75))
+                    .cornerRadius(12)
+            }
+
             Spacer(minLength: 0)
         }
         .safeAreaInset(edge: .bottom, spacing: 0) {
@@ -1263,9 +1263,9 @@ struct ContentView: View {
                 .buttonStyle(.plain)
 
                 Button {
-                    showingLibraryImporter = true
+                    showingEbookImporter = true
                 } label: {
-                    Image(systemName: "plus")
+                    Image(systemName: "book.badge.plus")
                         .font(.system(size: 16, weight: .medium))
                         .foregroundStyle(theme.ui)
                         .padding(.horizontal, 16)
@@ -1298,6 +1298,13 @@ struct ContentView: View {
             }
         } message: {
             Text("Введите название папки")
+        }
+        .fileImporter(
+            isPresented: $showingEbookImporter,
+            allowedContentTypes: [.epub, .plainText, EBookFileType.fb2],
+            allowsMultipleSelection: false
+        ) { result in
+            ebookStore.importBook(from: result)
         }
         .onAppear {
             loadFolders()
