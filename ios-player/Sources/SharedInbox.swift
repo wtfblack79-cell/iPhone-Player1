@@ -1,58 +1,80 @@
 import Foundation
 
+// MARK: - Приём файлов, переданных через Share Extension
+// Расширение складывает файлы в папку Inbox внутри app group.
+// Этот модуль забирает их оттуда при запуске приложения или по URL-схеме.
+
 enum SharedInbox {
-    static let appGroupId = "group.com.personal.iphoneplayer"
 
-    static func hasPendingFiles() -> Bool {
-        !inboxURLs().isEmpty
-    }
+    // Должно совпадать с ShareViewController.swift в расширении
+    private static let appGroupID = "group.com.personal.iphoneplayer"
+    private static let inboxFolderName = "Inbox"
 
-    // Забирает файлы, оставленные share-расширением, и перемещает их
-    // во временную папку приложения. Возвращает URL этих файлов.
-    // Файлы убираются из Inbox, чтобы при следующем запуске не дублировались.
-    static func takeFiles() -> [URL] {
-        let urls = inboxURLs()
-        guard !urls.isEmpty else { return [] }
+    private static let bookExtensions: Set<String> = ["fb2", "epub", "txt"]
+    private static let audioExtensions: Set<String> = [
+        "mp3", "m4a", "m4b", "aac", "wav", "aiff", "aif", "flac", "caf"
+    ]
 
-        let staging = FileManager.default.temporaryDirectory
-            .appendingPathComponent("SharedInbox", isDirectory: true)
+    // MARK: Публичный API
 
-        try? FileManager.default.createDirectory(
-            at: staging,
-            withIntermediateDirectories: true
-        )
+    /// Забирает файлы из Inbox и маршрутизирует их:
+    /// книги — в EBookStore, аудио — в корень Documents (там его сканирует аудиобиблиотека).
+    /// Логика аудиобиблиотеки при этом не затрагивается.
+    @MainActor
+    static func consume(ebookStore: EBookStore) {
+        let fileManager = FileManager.default
 
-        var result: [URL] = []
+        guard let base = fileManager.containerURL(
+            forSecurityApplicationGroupIdentifier: appGroupID
+        ) else { return }
 
-        for url in urls {
-            let destination = staging.appendingPathComponent(url.lastPathComponent)
-            try? FileManager.default.removeItem(at: destination)
+        let inbox = base.appendingPathComponent(inboxFolderName, isDirectory: true)
+        guard let files = try? fileManager.contentsOfDirectory(at: inbox, includingPropertiesForKeys: nil) else {
+            return
+        }
+
+        let documents = fileManager.urls(for: .documentDirectory, in: .userDomainMask)[0]
+
+        for file in files where !file.hasDirectoryPath {
+            let ext = file.pathExtension.lowercased()
 
             do {
-                try FileManager.default.moveItem(at: url, to: destination)
-                result.append(destination)
+                if bookExtensions.contains(ext) {
+                    // Книга уходит в штатный импорт EBookStore —
+                    // файл копируется в Documents/EBooks и появляется в библиотеке
+                    _ = ebookStore.importBook(from: file)
+                    try? fileManager.removeItem(at: file)
+                } else if audioExtensions.contains(ext) {
+                    let dest = uniqueURL(in: documents, suggestedName: file.lastPathComponent)
+                    try fileManager.moveItem(at: file, to: dest)
+                } else {
+                    // Неизвестный тип — удаляем, чтобы Inbox не засорялся
+                    try? fileManager.removeItem(at: file)
+                }
             } catch {
-                // файл с таким именем уже в staging — пропускаем дубликат
+                // Файл останется в Inbox и будет обработан при следующем запуске
             }
         }
-
-        return result
     }
 
-    private static func inboxURLs() -> [URL] {
-        guard
-            let container = FileManager.default.containerURL(
-                forSecurityApplicationGroupIdentifier: appGroupId
-            )
-        else {
-            return []
+    // MARK: Вспомогательное
+
+    private static func uniqueURL(in directory: URL, suggestedName: String) -> URL {
+        let fileManager = FileManager.default
+        let name = (suggestedName as NSString).lastPathComponent
+        let stem = (name as NSString).deletingPathExtension
+        let ext = (name as NSString).pathExtension
+
+        var dest = directory.appendingPathComponent(name)
+        var counter = 1
+
+        while fileManager.fileExists(atPath: dest.path) {
+            dest = ext.isEmpty
+                ? directory.appendingPathComponent("\(stem) (\(counter))")
+                : directory.appendingPathComponent("\(stem) (\(counter)).\(ext)")
+            counter += 1
         }
 
-        let inbox = container.appendingPathComponent("Inbox", isDirectory: true)
-
-        return (try? FileManager.default.contentsOfDirectory(
-            at: inbox,
-            includingPropertiesForKeys: nil
-        )) ?? []
+        return dest
     }
 }
