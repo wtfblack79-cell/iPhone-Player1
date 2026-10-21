@@ -109,12 +109,23 @@ final class EBookStore: ObservableObject {
         }
     }
 
+    // MARK: Удаление
+
+    func removeBook(_ book: EBook) {
+        books.removeAll { $0.id == book.id }
+        try? FileManager.default.removeItem(at: directory.appendingPathComponent(book.fileName))
+        saveIndex()
+    }
+
     // MARK: Чтение
 
     func text(for book: EBook) -> String? {
         let url = directory.appendingPathComponent(book.fileName)
         guard let data = try? Data(contentsOf: url) else { return nil }
-        return EBookParser.parse(data: data, fileExtension: book.fileName.pathExtension.lowercased())
+        return EBookParser.parse(
+            data: data,
+            fileExtension: (book.fileName as NSString).pathExtension.lowercased()
+        )
     }
 }
 
@@ -492,6 +503,7 @@ enum EBookParser {
 
 struct ReadingScreenView: View {
     @ObservedObject var store: EBookStore
+    var initialBook: EBook? = nil
     let onBack: () -> Void
 
     @ObservedObject private var theme = PlayTheme.shared
@@ -544,6 +556,11 @@ struct ReadingScreenView: View {
                 withAnimation(.easeOut(duration: 0.2)) {
                     open(book)
                 }
+            }
+        }
+        .onAppear {
+            if let book = initialBook, currentBook == nil {
+                open(book)
             }
         }
     }
