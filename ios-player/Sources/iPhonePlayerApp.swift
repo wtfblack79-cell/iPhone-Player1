@@ -155,6 +155,7 @@ enum ActiveMenu {
 
 struct ContentView: View {
     @ObservedObject private var theme = PlayTheme.shared
+    @StateObject private var ebookStore = EBookStore()
 
     @State private var player: AVAudioPlayer?
     @State private var fileName = "Аудиокнига не выбрана"
@@ -167,6 +168,7 @@ struct ContentView: View {
     @State private var currentScreenIsLibrary = false
     @State private var currentScreenIsSettings = false
     @State private var currentScreenIsColor = false
+    @State private var currentScreenIsReading = false
     @State private var isDesignSectionExpanded = false
     @State private var errorMessage = ""
     @State private var showingCreateFolder = false
@@ -230,6 +232,12 @@ struct ContentView: View {
                 libraryView
             } else if currentScreenIsSettings {
                 settingsView
+            } else if currentScreenIsReading {
+                ReadingScreenView(store: ebookStore) {
+                    withAnimation(.easeOut(duration: 0.2)) {
+                        currentScreenIsReading = false
+                    }
+                }
             } else {
                 playerView
             }
@@ -308,20 +316,24 @@ struct ContentView: View {
             importBackgroundImage(result)
         }
         .overlay(alignment: .topTrailing) {
-            Button {
-                withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) {
-                    activeMenu = activeMenu == .main ? .none : .main
+            if currentScreenIsReading {
+                EmptyView()
+            } else {
+                Button {
+                    withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) {
+                        activeMenu = activeMenu == .main ? .none : .main
+                    }
+                } label: {
+                    Image(systemName: "ellipsis")
+                        .font(.system(size: 24, weight: .bold))
+                        .foregroundStyle(theme.ui)
+                        .frame(width: 44, height: 44)
+                        .background(Color.white.opacity(0.12))
+                        .clipShape(Circle())
                 }
-            } label: {
-                Image(systemName: "ellipsis")
-                    .font(.system(size: 24, weight: .bold))
-                    .foregroundStyle(theme.ui)
-                    .frame(width: 44, height: 44)
-                    .background(Color.white.opacity(0.12))
-                    .clipShape(Circle())
+                .padding(.top, 12)
+                .padding(.trailing, 18)
             }
-            .padding(.top, 12)
-            .padding(.trailing, 18)
         }
         .overlay(alignment: .topLeading) {
             if currentScreenIsColor {
@@ -360,7 +372,7 @@ struct ContentView: View {
                 .buttonStyle(.plain)
                 .padding(.top, 12)
                 .padding(.leading, 18)
-            } else {
+            } else if !currentScreenIsReading {
                 Button {
                     refreshLibrary()
                     currentScreenIsLibrary = true
@@ -562,6 +574,8 @@ struct ContentView: View {
         ZStack {
             if currentScreenIsColor || currentScreenIsSettings {
                 backgroundLayer(image: settingsBackground)
+            } else if currentScreenIsReading {
+                backgroundLayer(image: homeBackground)
             } else if currentScreenIsLibrary {
                 backgroundLayer(image: libraryBackground)
             } else {
@@ -831,6 +845,14 @@ struct ContentView: View {
                 .disabled(player == nil)
 
                 seekButton(seconds: 15, symbol: "goforward.15")
+
+                Button {
+                    currentScreenIsReading = true
+                } label: {
+                    Image(systemName: "book.fill")
+                        .font(.system(size: 30))
+                        .foregroundStyle(theme.ui)
+                }
             }
             .buttonStyle(.plain)
             .frame(maxWidth: .infinity)
