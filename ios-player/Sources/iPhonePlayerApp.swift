@@ -328,6 +328,13 @@ struct ContentView: View {
         ) { result in
             importBackgroundImage(result)
         }
+        .fileImporter(
+            isPresented: $showingEbookImporter,
+            allowedContentTypes: [.epub, .plainText, EBookFileType.fb2],
+            allowsMultipleSelection: false
+        ) { result in
+            ebookStore.importBook(from: result)
+        }
         .overlay(alignment: .topTrailing) {
             if currentScreenIsReading {
                 EmptyView()
@@ -1228,26 +1235,14 @@ struct ContentView: View {
                 .scrollContentBackground(.hidden)
             }
 
-            if let error = ebookStore.errorMessage {
-                Text(error)
-                    .font(AppFont.regular(13))
-                    .foregroundStyle(.white)
-                    .multilineTextAlignment(.center)
-                    .padding(.horizontal, 14)
-                    .padding(.vertical, 10)
-                    .background(Color.red.opacity(0.75))
-                    .cornerRadius(12)
-            }
-
             Spacer(minLength: 0)
         }
         .safeAreaInset(edge: .bottom, spacing: 0) {
             HStack {
                 Button {
-                    newFolderName = ""
-                    showingCreateFolder = true
+                    showingEbookImporter = true
                 } label: {
-                    Image(systemName: "folder.badge.plus")
+                    Image(systemName: "plus")
                         .font(.system(size: 16, weight: .medium))
                         .foregroundStyle(theme.ui)
                         .padding(.horizontal, 16)
@@ -1263,9 +1258,10 @@ struct ContentView: View {
                 .buttonStyle(.plain)
 
                 Button {
-                    showingEbookImporter = true
+                    newFolderName = ""
+                    showingCreateFolder = true
                 } label: {
-                    Image(systemName: "book.badge.plus")
+                    Image(systemName: "folder.badge.plus")
                         .font(.system(size: 16, weight: .medium))
                         .foregroundStyle(theme.ui)
                         .padding(.horizontal, 16)
@@ -1299,15 +1295,20 @@ struct ContentView: View {
         } message: {
             Text("Введите название папки")
         }
-        .fileImporter(
-            isPresented: $showingEbookImporter,
-            allowedContentTypes: [.epub, .plainText, EBookFileType.fb2],
-            allowsMultipleSelection: false
-        ) { result in
-            ebookStore.importBook(from: result)
-        }
         .onAppear {
             loadFolders()
+        }
+        .overlay(alignment: .bottom) {
+            if let error = ebookStore.errorMessage {
+                Text(error)
+                    .font(AppFont.regular(13))
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 10)
+                    .background(Color.red.opacity(0.75))
+                    .cornerRadius(12)
+                    .padding(.bottom, 56)
+            }
         }
     }
 
