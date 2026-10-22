@@ -771,7 +771,15 @@ struct ReadingScreenView: View {
                             options: [
                                 CustomMenuOption(title: "Добавить книгу", systemImage: "doc.badge.plus") {
                                     isMenuOpen = false
-                                    showingBookPicker = true
+
+                                    // ВАЖНО: меню закрывается с анимацией и удаляется
+                                    // из иерархии вместе с этой кнопкой. Если открыть
+                                    // fileImporter в том же обновлении, SwiftUI молча
+                                    // отбрасывает презентацию — пикер не открывается.
+                                    // Поэтому открываем его после завершения анимации.
+                                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
+                                        showingBookPicker = true
+                                    }
                                 },
                                 CustomMenuOption(title: "К списку книг", systemImage: "books.vertical") {
                                     isMenuOpen = false
